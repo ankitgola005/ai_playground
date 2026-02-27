@@ -64,8 +64,11 @@ class Trainer:
                 self.global_step += 1
                 if self.global_step >= self.max_steps:
                     break
-            if val_dataloader is not None and self.global_step % self.val_interval == 0:
-                self.validate(model, val_dataloader)
+            if val_dataloader and self.global_step % self.val_interval == 0:
+                val_loss = self.validate(model, val_dataloader)
+                if self.logger:
+                    self.logger.update(val_loss=val_loss)
+                    self.logger.log(self.global_step)
 
     def validate(self, model, val_dataloader):
         model.eval()
@@ -78,10 +81,7 @@ class Trainer:
                 total_loss += loss.item() * xb.size(0)
                 count += xb.size(0)
 
-            avg_loss = total_loss / count if count > 0 else 0.0
-            if self.logger:
-                self.logger.update(val_loss=avg_loss)
-                self.logger.log(self.global_step)
+            return total_loss / count if count > 0 else 0.0
 
     def generate(self, model, tokenizer, context=None, num_tokens=500):
         model.eval()
