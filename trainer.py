@@ -61,7 +61,11 @@ class Trainer:
                     self.logger.log(self.global_step)
 
                 # Checkpointing
-                if self.global_step > 0 and self.global_step % self.save_interval == 0:
+                if (
+                    self.global_step > 0
+                    and self.save_interval > 0
+                    and self.global_step % self.save_interval == 0
+                ):
                     self.save_checkpoint(model)
 
                 # Validation
@@ -70,7 +74,7 @@ class Trainer:
                     if self.logger:
                         self.logger.update(val_loss=val_loss)
                         self.logger.log(self.global_step)
-            
+
                 if self.global_step >= self.max_steps:
                     break
 
