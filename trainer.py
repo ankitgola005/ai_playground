@@ -50,7 +50,9 @@ class Trainer:
                 loss.backward()
                 torch.nn.utils.clip_grad_norm_(model.parameters(), 1.0)
                 self.optimizer.step()
+                self.global_step += 1
 
+                # Logging
                 if self.logger:
                     self.logger.update(
                         loss=loss.item(),
@@ -58,17 +60,19 @@ class Trainer:
                     )
                     self.logger.log(self.global_step)
 
+                # Checkpointing
                 if self.global_step > 0 and self.global_step % self.save_interval == 0:
                     self.save_checkpoint(model)
 
-                self.global_step += 1
+                # Validation
+                if val_dataloader and self.global_step % self.val_interval == 0:
+                    val_loss = self.validate(model, val_dataloader)
+                    if self.logger:
+                        self.logger.update(val_loss=val_loss)
+                        self.logger.log(self.global_step)
+            
                 if self.global_step >= self.max_steps:
                     break
-            if val_dataloader and self.global_step % self.val_interval == 0:
-                val_loss = self.validate(model, val_dataloader)
-                if self.logger:
-                    self.logger.update(val_loss=val_loss)
-                    self.logger.log(self.global_step)
 
     def validate(self, model, val_dataloader):
         model.eval()
