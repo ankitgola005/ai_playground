@@ -50,7 +50,6 @@ class Trainer:
                 loss.backward()
                 torch.nn.utils.clip_grad_norm_(model.parameters(), 1.0)
                 self.optimizer.step()
-                self.global_step += 1
 
                 # Logging
                 if self.logger:
@@ -58,7 +57,6 @@ class Trainer:
                         loss=loss.item(),
                         lr=self.optimizer.param_groups[0]["lr"],
                     )
-                    self.logger.log(self.global_step)
 
                 # Checkpointing
                 if (
@@ -73,8 +71,11 @@ class Trainer:
                     val_loss = self.validate(model, val_dataloader)
                     if self.logger:
                         self.logger.update(val_loss=val_loss)
-                        self.logger.log(self.global_step)
 
+                if self.logger:
+                    self.logger.log(self.global_step)
+
+                self.global_step += 1
                 if self.global_step >= self.max_steps:
                     break
 
