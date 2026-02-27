@@ -16,10 +16,12 @@ class Config:
     # Training
     batch_size = 32  # How many independent sequences will be processed
     max_steps = 50
+    val_interval = 10
     lr = 1e-2
     warmup_steps = 100
     weight_decay = 0.1
     grad_clip = 1.0
+    save_interval = 100
 
     # Precision
     use_fp16 = False

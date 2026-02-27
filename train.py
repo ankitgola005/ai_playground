@@ -19,11 +19,13 @@ def main():
         text = f.read()
     tokenizer = CharTokenizer(text)
     encoded = torch.tensor(tokenizer.encode(text), dtype=torch.long)
-    train_loader = dataset.build_dataloader(config, encoded)
+    train_data, val_data = dataset.train_val_split(encoded, split=config.split)
+    train_loader = dataset.build_dataloader(config, train_data)
+    val_loader = dataset.build_dataloader(config, val_data)
 
     model = BiGram(vocab_size=tokenizer.vocab_size, config=config).to(device)
-    trainer = Trainer(logger=Logger(), max_steps=config.max_steps)
-    trainer.fit(model, train_loader)
+    trainer = Trainer(logger=Logger(), config=config, device=device)
+    trainer.fit(model, train_loader, val_loader)
     generated = trainer.generate(model, tokenizer, num_tokens=100)
     print(f"{generated=}")
 

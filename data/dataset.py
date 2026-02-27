@@ -37,3 +37,10 @@ def build_dataloader(config, encoded_data):
         drop_last=True,
     )
     return dataloader
+
+
+def train_val_split(encoded_data, split=0.9):
+    split_idx = int(len(encoded_data) * split)
+    train_data = encoded_data[:split_idx]
+    val_data = encoded_data[split_idx:]
+    return train_data, val_data
