@@ -21,7 +21,7 @@ class Config:
     warmup_steps = 100
     weight_decay = 0.1
     grad_clip = 1.0
-    save_interval = 0
+    save_interval = 0  # checkpoint every 100 steps
 
     # Precision
     use_fp16 = False
