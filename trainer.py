@@ -50,12 +50,21 @@ class Trainer:
                 loss.backward()
                 torch.nn.utils.clip_grad_norm_(model.parameters(), 1.0)
                 self.optimizer.step()
-
+                total_norm = torch.norm(
+                    torch.stack(
+                        [
+                            p.grad.norm(2)
+                            for p in model.parameters()
+                            if p.grad is not None
+                        ]
+                    )
+                )
                 # Logging
                 if self.logger:
                     self.logger.update(
                         loss=loss.item(),
                         lr=self.optimizer.param_groups[0]["lr"],
+                        grad_norm=total_norm.item(),
                     )
 
                 # Checkpointing
