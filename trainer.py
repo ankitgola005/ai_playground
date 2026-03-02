@@ -160,17 +160,28 @@ class Trainer:
     def _should_stop(self) -> bool:
         return self.max_steps > 0 and self.global_step >= self.max_steps
 
-    def generate(self, model, tokenizer, context=None, num_tokens: int = 500):
+    def predict(
+        self, model: nn.Module, tokenizer, prompts: list[str], max_tokens: int = 500
+    ):
         model.eval()
-        with torch.no_grad():
-            context = (
-                context
-                if context is not None
-                else torch.zeros((1, 1), dtype=torch.long, device=self.device)
+        with torch.inference_mode():
+            token_list = [tokenizer.encode(c) for c in prompts]
+            max_len = max(len(t) for t in token_list)
+            batch_context = torch.zeros(
+                len(prompts), max_len, dtype=torch.long, device=self.device
             )
-            return tokenizer.decode(
-                model.generate(context, max_new_tokens=num_tokens)[0].tolist()
-            )
+            for i, tokens in enumerate(token_list):
+                batch_context[i, : len(tokens)] = torch.tensor(
+                    tokens, device=self.device
+                )
+
+            output_tokens = batch_context.clone()
+            for _ in range(max_tokens):
+                logits, _ = model(output_tokens)
+                next_token = torch.argmax(logits[:, -1, :], dim=-1, keepdim=True)
+                output_tokens = torch.cat([output_tokens, next_token], dim=1)
+
+        return [tokenizer.decode(seq.tolist()) for seq in output_tokens]
 
     def save_checkpoint(self, model: nn.Module):
         path = self.config.trainer.save_path
