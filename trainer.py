@@ -86,27 +86,19 @@ class Trainer:
                     break
 
                 model.train()
-                self._train_one_epoch(model, self.optimizer, train_dataloader)
-
-                # Validation per epoch
-                if (
-                    val_dataloader is not None
-                    and self.val_interval > 0
-                    and (epoch + 1) % self.val_interval == 0
-                ):
-                    val_loss = self._validate(model, val_dataloader)
-                    if self.logger == "tensorboard":
-                        self.writer.add_scalar("val/loss", val_loss, self.global_step)
-
-                # Checkpointing
-                if self.save_interval > 0 and (epoch + 1) % self.save_interval == 0:
-                    self.save_checkpoint(model)
+                self._train_one_epoch(
+                    model, self.optimizer, train_dataloader, val_dataloader
+                )
 
         if self.logger == "tensorboard":
             self.writer.close()
 
     def _train_one_epoch(
-        self, model: nn.Module, optimizer: Optimizer, train_dataloader: DataLoader
+        self,
+        model: nn.Module,
+        optimizer: Optimizer,
+        train_dataloader: DataLoader,
+        val_dataloader: Optional[DataLoader],
     ):
         for xb, yb in train_dataloader:
             if self._should_stop():
@@ -124,17 +116,31 @@ class Trainer:
             if self.profiler is not None:
                 self.profiler.step()
 
-            grads = [p.grad.norm(2) for p in model.parameters() if p.grad is not None]
-            total_norm = (
-                torch.norm(torch.stack(grads))
-                if grads
-                else torch.tensor(0.0, device=self.device)
-            )
+            # grads = [p.grad.norm(2) for p in model.parameters() if p.grad is not None]
+            # total_norm = (
+            #     torch.norm(torch.stack(grads))
+            #     if grads
+            #     else torch.tensor(0.0, device=self.device)
+            # )
             if self.logger == "tensorboard":
                 self.writer.add_scalar("train/loss", loss.item(), self.global_step)
-                self.writer.add_scalar(
-                    "train/grad_norm", total_norm.item(), self.global_step
-                )
+                # self.writer.add_scalar(
+                #    "train/grad_norm", total_norm.item(), self.global_step
+                # )
+
+            # Validation
+            if (
+                val_dataloader is not None
+                and self.val_interval > 0
+                and (self.global_step) % self.val_interval == 0
+            ):
+                val_loss = self._validate(model, val_dataloader)
+                if self.logger == "tensorboard":
+                    self.writer.add_scalar("val/loss", val_loss, self.global_step)
+
+            # Checkpointing
+            if self.save_interval > 0 and (self.global_step) % self.save_interval == 0:
+                self.save_checkpoint(model)
 
     def _validate(self, model: nn.Module, val_dataloader: DataLoader):
         is_training = model.training
@@ -154,9 +160,7 @@ class Trainer:
     def _should_stop(self) -> bool:
         return self.max_steps > 0 and self.global_step >= self.max_steps
 
-    def generate(
-        self, model: nn.Module, tokenizer, context=None, num_tokens: int = 500
-    ):
+    def generate(self, model, tokenizer, context=None, num_tokens: int = 500):
         model.eval()
         with torch.no_grad():
             context = (
