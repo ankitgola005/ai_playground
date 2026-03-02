@@ -1,4 +1,4 @@
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from config import Config, DataConfig, ModelConfig, TrainerConfig, ExperimentalConfig
 
 
@@ -30,7 +30,7 @@ class TrainerGPTConfig(TrainerConfig):
 
 @dataclass
 class GPTConfig(Config):
-    dptdata: DataConfig = DataConfig()
-    gptmodel: ModelGPTConfig = ModelGPTConfig()
-    gpttrainer: TrainerGPTConfig = TrainerGPTConfig()
-    gptexperimental: ExperimentalConfig = ExperimentalConfig()
+    gptdata: DataConfig = field(default_factory=DataConfig)
+    gptmodel: ModelGPTConfig = field(default_factory=ModelGPTConfig)
+    gpttrainer: TrainerGPTConfig = field(default_factory=TrainerGPTConfig)
+    gptexperimental: ExperimentalConfig = field(default_factory=ExperimentalConfig)

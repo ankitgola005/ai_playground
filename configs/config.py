@@ -1,4 +1,4 @@
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 
 
 @dataclass
@@ -57,7 +57,7 @@ class ExperimentalConfig:
 
 @dataclass
 class Config:
-    data: DataConfig = DataConfig()
-    model: ModelConfig = ModelConfig()
-    trainer: TrainerConfig = TrainerConfig()
-    experimental: ExperimentalConfig = ExperimentalConfig()
+    data: DataConfig = field(default_factory=DataConfig)
+    model: ModelConfig = field(default_factory=ModelConfig)
+    trainer: TrainerConfig = field(default_factory=TrainerConfig)
+    experimental: ExperimentalConfig = field(default_factory=ExperimentalConfig)

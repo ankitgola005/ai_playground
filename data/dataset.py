@@ -3,9 +3,14 @@ import torch
 import random
 import numpy as np
 
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from configs.config import Config
+
 
 class TextDataset(Dataset):
-    def __init__(self, data, block_size):
+    def __init__(self, data: torch.Tensor, block_size: int):
         self.data = data
         self.block_size = block_size
 
@@ -18,20 +23,20 @@ class TextDataset(Dataset):
         return x, y
 
 
-def seed_worker(worker_id):
+def seed_worker(worker_id: int):
     worker_seed = torch.initial_seed() % 2**32
     np.random.seed(worker_seed)
     random.seed(worker_seed)
 
 
-def build_dataloader(config, encoded_data):
-    dataset = TextDataset(encoded_data, block_size=config.block_size)
-    generator = torch.Generator().manual_seed(config.seed)
+def build_dataloader(config: Config, encoded_data: torch.Tensor):
+    dataset = TextDataset(encoded_data, block_size=config.model.block_size)
+    generator = torch.Generator().manual_seed(config.experimental.seed)
     dataloader = DataLoader(
         dataset,
-        batch_size=config.batch_size,
+        batch_size=config.trainer.batch_size,
         shuffle=True,
-        num_workers=config.num_workers,
+        num_workers=config.data.num_workers,
         worker_init_fn=seed_worker,
         generator=generator,
         drop_last=True,
@@ -39,7 +44,7 @@ def build_dataloader(config, encoded_data):
     return dataloader
 
 
-def train_val_split(encoded_data, split=0.9):
+def train_val_split(encoded_data: torch.Tensor, split: float = 0.9):
     split_idx = int(len(encoded_data) * split)
     train_data = encoded_data[:split_idx]
     val_data = encoded_data[split_idx:]
