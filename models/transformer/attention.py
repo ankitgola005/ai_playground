@@ -30,7 +30,7 @@ class SelfAttention(nn.Module):
 
 
 class MultiHeadAttention(nn.Module):
-    def __init__(self, embed_dim, n_head, block_size):
+    def __init__(self, embed_dim, n_head, block_size, attn_droupout, resid_droupout):
         super().__init__()
         self.embed_dim = embed_dim
         self.head_dim = embed_dim // n_head
@@ -47,6 +47,9 @@ class MultiHeadAttention(nn.Module):
             "mask", torch.tril(torch.ones(block_size, block_size, dtype=torch.bool))
         )
         self.scale = self.head_dim**-0.5
+
+        self.attn_dropout = nn.Dropout(attn_droupout)
+        self.resid_dropout = nn.Dropout(resid_droupout)
 
     def forward(self, x):
         B, T, C = x.shape
@@ -65,6 +68,7 @@ class MultiHeadAttention(nn.Module):
         )  # (B, n_head, T, head_dim) @ (B, n_head, head_dim, T) -> (B, n_head, T, T)
         atten = atten.masked_fill(~self.mask[:T, :T], float("-inf"))
         atten = torch.softmax(atten, dim=-1)  # (B, n_head, T, T)
+        atten = self.attn_dropout(atten)  # (B, n_head, T, T)
         atten = torch.matmul(
             atten, v
         )  # (B, n_head, T, T) @ (B, n_head, T, head_dim) -> (B, n_head, T, head_dim)
@@ -73,4 +77,5 @@ class MultiHeadAttention(nn.Module):
         atten = (
             atten.transpose(1, 2).contiguous().view(B, T, C)
         )  # (B, T, n_head*head_dim) -> (B, T, embed_dim)
-        return self.out_proj(atten)  # (B, T, embed_dim) -> (B, T, embed_dim)
+        out = self.out_proj(atten)  # (B, T, embed_dim) -> (B, T, embed_dim)
+        return self.resid_dropout(out)

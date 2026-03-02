@@ -4,11 +4,12 @@ from .attention import MultiHeadAttention
 
 
 class FFN(nn.Module):
-    def __init__(self, embed_dim, hidden_dim):
+    def __init__(self, embed_dim, hidden_dim, dropout):
         super().__init__()
         self.net = nn.Sequential(
             nn.Linear(embed_dim, hidden_dim),
             nn.GELU(),
+            nn.Dropout(dropout),
             nn.Linear(hidden_dim, embed_dim),
         )
 

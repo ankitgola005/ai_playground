@@ -1,21 +1,36 @@
-from config import Config
+from dataclasses import dataclass
+from config import Config, DataConfig, ModelConfig, TrainerConfig, ExperimentalConfig
 
 
-class MiniGPTConfig(Config):
-    # Model
-    block_size = 128  # context length, larger than tiny test
-    n_layer = 2  # fewer layers for mini GPT
-    n_head = 4  # attention heads
-    n_embed = 64  # embedding dimension
-    hidden_dim = 256  # FFN hidden size
-    dropout = 0.0  # TBD
+@dataclass
+class ModelGPTConfig(ModelConfig):
+    block_size: int = 128
+    n_layer: int = 2
+    n_head: int = 4
+    n_embed: int = 64
+    hidden_dim: int = 256
+    dropout: float = 0.1
 
+
+@dataclass
+class TrainerGPTConfig(TrainerConfig):
     # Training
-    batch_size = 16
-    max_steps = 1000
-    val_interval = 50
-    lr = 3e-4  # standard small GPT LR
-    warmup_steps = 50
-    weight_decay = 0.01
-    grad_clip = 1.0
-    save_interval = 100
+    batch_size: int = 64
+    max_steps: int = 5000
+    val_interval: int = 100
+    lr: float = 3e-4
+    warmup_steps: int = 100
+    weight_decay: float = 0.01
+    grad_clip: float = 1.0
+
+    # Checkpointing
+    save_path: str = "checkpoints/mini_gpt"
+    save_interval: int = 0
+
+
+@dataclass
+class GPTConfig(Config):
+    dptdata: DataConfig = DataConfig()
+    gptmodel: ModelGPTConfig = ModelGPTConfig()
+    gpttrainer: TrainerGPTConfig = TrainerGPTConfig()
+    gptexperimental: ExperimentalConfig = ExperimentalConfig()
