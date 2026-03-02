@@ -30,7 +30,7 @@ class SelfAttention(nn.Module):
 
 
 class MultiHeadAttention(nn.Module):
-    def __init__(self, embed_dim, n_head, block_size, attn_droupout, resid_droupout):
+    def __init__(self, embed_dim, n_head, block_size, attn_droupout, residual_droupout):
         super().__init__()
         self.embed_dim = embed_dim
         self.head_dim = embed_dim // n_head
@@ -49,7 +49,7 @@ class MultiHeadAttention(nn.Module):
         self.scale = self.head_dim**-0.5
 
         self.attn_dropout = nn.Dropout(attn_droupout)
-        self.resid_dropout = nn.Dropout(resid_droupout)
+        self.resid_dropout = nn.Dropout(residual_droupout)
 
     def forward(self, x):
         B, T, C = x.shape

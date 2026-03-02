@@ -1,5 +1,11 @@
 from dataclasses import dataclass, field
-from config import Config, DataConfig, ModelConfig, TrainerConfig, ExperimentalConfig
+from configs.config import (
+    Config,
+    DataConfig,
+    ModelConfig,
+    TrainerConfig,
+    ExperimentalConfig,
+)
 
 
 @dataclass
@@ -9,17 +15,19 @@ class ModelGPTConfig(ModelConfig):
     n_head: int = 4
     n_embed: int = 64
     hidden_dim: int = 256
-    dropout: float = 0.1
+    ffn_dropout: float = 0.1
+    attn_dropout: float = 0.1
+    residual_dropout: float = 0.1
 
 
 @dataclass
 class TrainerGPTConfig(TrainerConfig):
     # Training
     batch_size: int = 64
-    max_steps: int = 5000
-    val_interval: int = 100
+    max_steps: int = 500
+    val_interval: int = 20
     lr: float = 3e-4
-    warmup_steps: int = 100
+    warmup_steps: int = 10
     weight_decay: float = 0.01
     grad_clip: float = 1.0
 

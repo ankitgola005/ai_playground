@@ -18,10 +18,21 @@ class FFN(nn.Module):
 
 
 class TransformerBlock(nn.Module):
-    def __init__(self, embed_dim, n_head, block_size, hidden_dim):
+    def __init__(
+        self,
+        embed_dim,
+        n_head,
+        block_size,
+        hidden_dim,
+        attn_dropout,
+        residual_dropout,
+        ffn_dropout,
+    ):
         super().__init__()
-        self.attention = MultiHeadAttention(embed_dim, n_head, block_size)
-        self.ffn = FFN(embed_dim, hidden_dim)
+        self.attention = MultiHeadAttention(
+            embed_dim, n_head, block_size, attn_dropout, residual_dropout
+        )
+        self.ffn = FFN(embed_dim, hidden_dim, ffn_dropout)
         self.linear1 = nn.LayerNorm(embed_dim)
         self.linear2 = nn.LayerNorm(embed_dim)
 

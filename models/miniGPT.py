@@ -1,8 +1,8 @@
 import torch.nn as nn
 from torch.nn import functional as F
 
-from transformer.embeddings import EmbeddingWrapper
-from transformer.transformer import TransformerBlock
+from .transformer.embeddings import EmbeddingWrapper
+from .transformer.transformer import TransformerBlock
 
 from typing import TYPE_CHECKING
 
@@ -27,6 +27,9 @@ class MiniGPT(nn.Module):
                     config.model.n_head,
                     config.model.block_size,
                     config.model.hidden_dim,
+                    config.model.attn_dropout,
+                    config.model.residual_dropout,
+                    config.model.ffn_dropout,
                 )
                 for _ in range(config.model.n_layer)
             ]
