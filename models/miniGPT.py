@@ -1,32 +1,40 @@
-from xml.parsers.expat import model
-
 import torch.nn as nn
 from torch.nn import functional as F
 
 from transformer.embeddings import EmbeddingWrapper
 from transformer.transformer import TransformerBlock
 
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from configs.gpt_config import GPTConfig
+
 
 class MiniGPT(nn.Module):
-    def __init__(
-        self, vocab_size, block_size, embed_dim, n_heads, hidden_dim, n_layers
-    ):
+    def __init__(self, vocab_size: int, config: GPTConfig):
         super().__init__()
 
         # Embeddings
-        self.embeddings = EmbeddingWrapper(vocab_size, block_size, embed_dim)
+        self.embeddings = EmbeddingWrapper(
+            vocab_size, config.model.block_size, config.model.n_embed
+        )
 
         # Transformer blocks
         self.transformer_blocks = nn.Sequential(
             *[
-                TransformerBlock(embed_dim, n_heads, block_size, hidden_dim)
-                for _ in range(n_layers)
+                TransformerBlock(
+                    config.model.n_embed,
+                    config.model.n_head,
+                    config.model.block_size,
+                    config.model.hidden_dim,
+                )
+                for _ in range(config.model.n_layer)
             ]
         )
 
         # Final Layernorm + Linear head
-        self.layernorm = nn.LayerNorm(embed_dim)
-        self.head = nn.Linear(embed_dim, vocab_size, bias=False)
+        self.layernorm = nn.LayerNorm(config.model.n_embed)
+        self.head = nn.Linear(config.model.n_embed, vocab_size, bias=False)
 
     def forward(self, idx, targets=None):
         x = self.embeddings(idx)
