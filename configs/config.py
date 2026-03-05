@@ -20,6 +20,7 @@ class ModelConfig:
 @dataclass
 class TrainerConfig:
     # Training
+    auto_restart: bool = True
     batch_size: int = 32  # How many independent sequences will be processed
     max_epochs: int = 1
     max_steps: int = 500

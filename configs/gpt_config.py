@@ -25,12 +25,12 @@ class TrainerGPTConfig(TrainerConfig):
     # Training
     batch_size: int = 64
     max_steps: int = 1000
-    val_interval: int = 50
+    val_interval: int = 100
     lr: float = 3e-4
     min_lr_ratio: float = 0.1
     betas: tuple = (0.9, 0.95)
     weight_decay: float = 0.01
-    warmup_steps: int = 200
+    warmup_steps: int = 100
     grad_clip: float = 1.0
 
     # Checkpointing
@@ -49,13 +49,3 @@ class GPTConfig(Config):
     model: ModelGPTConfig = field(default_factory=ModelGPTConfig)  # type: ignore
     trainer: TrainerGPTConfig = field(default_factory=TrainerGPTConfig)  # type: ignore
     experimental: ExperimentalGPTConfig = field(default_factory=ExperimentalGPTConfig)  # type: ignore
-
-
-# Notes:
-# 1.    A high LR may cause training instability (NaNs / loss spikes) especially in the early stages.
-# 2.    A high gradient may cause training instability (NaNs / loss spikes) especially in the early stages.
-# 3.    Gradient norms can be large at start of training, but variance should reduce as training progress.   
-# 4.    If you see NaNs, try reducing the LR and/or enabling gradient clipping.
-# 5.    A loss zig zig followed by NaN is usually exploding gradients (usually followed by softmax overflow), while a NaN followed by smooth loss is usually FP16 overflow.
-# 6.    Scalar drop is sign of overflow detection
-# 7.

@@ -3,19 +3,29 @@ from contextlib import nullcontext
 import shutil
 from typing import Optional, TYPE_CHECKING
 import time
+from dataclasses import asdict
+import json
+import sys
 
 import torch
 import torch.nn as nn
 from torch.utils.tensorboard import SummaryWriter
 from torch.profiler import profile, ProfilerActivity
 
-from utils.utils import precision_to_dtype, _build_lr_scheduler
-from tqdm.auto import tqdm
+from utils.utils import (
+    precision_to_dtype,
+    build_lr_scheduler,
+    get_norm_info,
+    set_seed,
+    get_git_info,
+    setup_progress_bar,
+)
 
 if TYPE_CHECKING:
     from configs.config import Config
     from torch.utils.data import DataLoader
     from torch.optim import Optimizer, lr_scheduler
+    from tqdm import tqdm
 
 
 class Trainer:
@@ -28,9 +38,12 @@ class Trainer:
         self.lr_scheduler: Optional[lr_scheduler.LambdaLR] = None
         self.global_step: int = 0
         self.step_time_accumulator: float = 0.0
+        self.data_time_accumulator: float = 0.0
         self.tokens_accumulator: int = 0
 
         self.config: "Config" = config
+        self.seed = config.experimental.seed
+        set_seed(self.seed)
         self.device: str = (
             "cuda"
             if config.experimental.device == "cuda" and torch.cuda.is_available()
@@ -55,13 +68,17 @@ class Trainer:
         self.experiment_name: str = config.experimental.experiment_name
 
         self.use_progress_bar: bool = config.trainer.use_progress_bar
-        self.progress_bar = self._create_progress_bar() if self.use_progress_bar else None
-        self.progress_bar_metrics = {
-            "train_loss": 0.0,
-            "val_loss": 0.0,
-            "lr": 0.0,
-            "tps": 0.0,
-        } if self.use_progress_bar is not None else None
+        self.progress_bar: Optional[tqdm] = None
+        self.progress_bar_metrics = (
+            {
+                "train_loss": 0.0,
+                "val_loss": 0.0,
+                "lr": 0.0,
+                "tps": 0.0,
+            }
+            if self.use_progress_bar
+            else None
+        )
 
         self.logger: Optional[str] = config.trainer.logger
         if self.logger == "tensorboard":
@@ -113,7 +130,7 @@ class Trainer:
                 betas=self.config.trainer.betas,
             )
         )
-        self.lr_scheduler = _build_lr_scheduler(
+        self.lr_scheduler = build_lr_scheduler(
             self.optimizer,
             warmup_steps=self.config.trainer.warmup_steps,
             max_steps=self.max_steps,
@@ -126,6 +143,16 @@ class Trainer:
         train_dataloader: DataLoader,
         val_dataloader: Optional[DataLoader] = None,
     ):
+        # Reproinfo
+        print("Command:", " ".join(sys.argv))
+        print(get_git_info())
+        self._log_config()
+        if self.logger == "tensorboard":
+            self.writer.add_text(
+                "git_info", json.dumps(get_git_info(), indent=2), global_step=0
+            )
+
+        # COnfigure optimizer and scheduler
         if self.optimizer is None:
             self.configure_optimizer(model)
         assert (
@@ -135,6 +162,23 @@ class Trainer:
             self.lr_scheduler is not None
         ), "LR Scheduler must be configured before training"
 
+        # Try to load checkpoint
+        step = 0
+        latest_ckpt = self._latest_checkpoint_path()
+        if latest_ckpt is not None:
+            print(f"Loading checkpoint from: {latest_ckpt}")
+            step = self.load_checkpoint(model)
+            print(f"Resuming training from step: {step}")
+        else:
+            print("No checkpoint found, starting training from scratch")
+
+        # Setup progress bar
+        if self.use_progress_bar and self.progress_bar is None:
+            self.progress_bar = setup_progress_bar(
+                initial_step=step, total_steps=self.max_steps
+            )
+
+        # Train
         model.to(self.device)
         profiler_context = self.profiler if self.profiler else nullcontext()
         with profiler_context:
@@ -203,15 +247,27 @@ class Trainer:
         scheduler: lr_scheduler.LambdaLR,
     ):
         optimizer.zero_grad(set_to_none=True)
+        data_start = time.perf_counter()
         xb, yb = xb.to(self.device), yb.to(self.device)
+        self.data_time_accumulator += time.perf_counter() - data_start
+
         with torch.autocast(
             device_type=self.device,
             dtype=self.precision_dtype,
             enabled=self.use_amp,
         ):
             logits, loss = model(xb, yb)
+        if not torch.isfinite(loss):
+            raise RuntimeError(
+                f"Non-finite loss detected at step {self.global_step}: {loss}"
+            )
 
         self.scaler.scale(loss).backward()
+        for p in model.parameters():
+            if p.grad is not None and not torch.isfinite(p.grad).all():
+                raise RuntimeError(
+                    f"Non-finite gradient detected at step {self.global_step} for parameter {p.shape}"
+                )
         self.scaler.unscale_(optimizer)
         if self.config.trainer.grad_clip > 0.0:
             torch.nn.utils.clip_grad_norm_(
@@ -231,34 +287,37 @@ class Trainer:
     ):
         if self.log_interval > 0 and self.global_step % self.log_interval == 0:
             avg_step_time = self.step_time_accumulator / self.log_interval
-            grads = [p.grad.norm(2) for p in model.parameters() if p.grad is not None]
-            total_norm = (
-                torch.norm(torch.stack(grads))
-                if grads
-                else torch.tensor(0.0, device=self.device)
-            )
+            avg_data_time = self.data_time_accumulator / self.log_interval
+            grad_norm, weight_norm, update_ratio = get_norm_info(model, scheduler.get_last_lr()[0])  # type: ignore
             _loss = loss.item()
             kwargs = {
                 "loss": _loss,
                 "lr": scheduler.get_last_lr()[0],
                 "scaler_scale": self.scaler.get_scale() if self.scaler else None,
-                "total_norm": total_norm,
+                "grad_norm": grad_norm,
+                "weight_norm": weight_norm,
+                "update_ratio": update_ratio,
                 "tps": (
                     self.tokens_accumulator / self.step_time_accumulator
                     if self.step_time_accumulator > 0
                     else 0.0
                 ),
                 "avg_step_time": avg_step_time,
+                "avg_data_time": avg_data_time,
             }
+            if self.device == "cuda":
+                kwargs["gpu_mem_alloc"] = torch.cuda.memory_allocated() / (1024**3)
+                kwargs["gpu_mem_reserved"] = torch.cuda.memory_reserved() / (1024**3)
 
             self._log(kwargs)
             if self.progress_bar_metrics is not None and self.progress_bar is not None:
                 self.progress_bar_metrics["train_loss"] = _loss
-                self.progress_bar_metrics["lr"] = scheduler.get_last_lr()[0]    # type: ignore
+                self.progress_bar_metrics["lr"] = scheduler.get_last_lr()[0]  # type: ignore
                 self.progress_bar_metrics["tps"] = kwargs["tps"]
                 self.progress_bar.set_postfix(self.progress_bar_metrics)
 
             self.step_time_accumulator = 0.0
+            self.data_time_accumulator = 0.0
             self.tokens_accumulator = 0
 
     def _log(self, metrics: dict, prefix: str = "train"):
@@ -304,19 +363,6 @@ class Trainer:
 
     def _should_stop(self) -> bool:
         return self.max_steps > 0 and self.global_step >= self.max_steps
-
-    def _create_progress_bar(self):
-        if not self.use_progress_bar or tqdm is None:
-            return None
-
-        total = self.max_steps if self.max_steps > 0 else None
-
-        return tqdm(
-            total=total,
-            initial=self.global_step,
-            dynamic_ncols=True,
-            leave=True,
-        )
 
     def predict(
         self, model: nn.Module, tokenizer, prompts: list[str], max_tokens: int = 500
@@ -367,6 +413,10 @@ class Trainer:
         if self.experiment_name != "":
             path = Path(path) / self.experiment_name
         path = Path(path) / "ckpt_latest.pt"
+        if not path.exists():
+            print(f"No checkpoint found at {path}")
+            return 0
+
         checkpoint = torch.load(path, map_location=self.device)
         model.load_state_dict(checkpoint["model"])
 
@@ -386,3 +436,22 @@ class Trainer:
         self.global_step = checkpoint.get("step", 0)
 
         return self.global_step
+
+    def _latest_checkpoint_path(self):
+        path = self.config.trainer.save_path
+        if self.experiment_name != "":
+            path = Path(path) / self.experiment_name
+
+        ckpt = Path(path) / "ckpt_latest.pt"
+
+        return ckpt if ckpt.exists() else None
+
+    def _log_config(self):
+        cfg = asdict(self.config)
+
+        print("\n" + "=" * 20 + " Config " + "=" * 20)
+        print(json.dumps(cfg, indent=2))
+        print("=" * 50 + "\n")
+
+        if self.logger == "tensorboard":
+            self.writer.add_text("config", json.dumps(cfg, indent=2), global_step=0)

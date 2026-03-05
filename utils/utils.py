@@ -1,6 +1,9 @@
 import random
 import torch
+import torch.nn as nn
 import numpy as np
+import subprocess
+from tqdm import tqdm
 
 from configs.config import Config
 from data import dataset
@@ -40,7 +43,7 @@ def build_data_pipeline(config: Config):
     return tokenizer, train_loader, val_loader
 
 
-def _build_lr_scheduler(
+def build_lr_scheduler(
     optimizer: torch.optim.Optimizer,
     warmup_steps: int,
     max_steps: int,
@@ -55,3 +58,58 @@ def _build_lr_scheduler(
         return cosine * (1.0 - min_lr_ratio) + min_lr_ratio
 
     return torch.optim.lr_scheduler.LambdaLR(optimizer, lr_lambda)
+
+
+def get_grad_norm(model: nn.Module):
+    total = 0.0
+    for p in model.parameters():
+        if p.grad is not None:
+            total += p.grad.norm(2).item() ** 2
+    return total**0.5
+
+
+def get_weight_norm(model: nn.Module):
+    total = 0.0
+    for p in model.parameters():
+        total += p.norm(2).item() ** 2
+    return total**0.5
+
+
+def get_norm_info(model: nn.Module, lr: float):
+    grad_norm = get_grad_norm(model)
+    weight_norm = get_weight_norm(model)
+    update_ratio = (lr * grad_norm) / (weight_norm + 1e-8)
+    return grad_norm, weight_norm, update_ratio
+
+
+def setup_progress_bar(
+    initial_step: int = 0, total_steps: int = 0, desc: str = "Training"
+) -> tqdm:
+    total = total_steps if total_steps > 0 else None
+    return tqdm(
+        total=total,
+        initial=initial_step,
+        dynamic_ncols=True,
+        leave=True,
+        desc=desc,
+    )
+
+
+def get_git_info():
+    try:
+        commit = subprocess.check_output(["git", "rev-parse", "HEAD"]).decode().strip()
+
+        branch = (
+            subprocess.check_output(["git", "rev-parse", "--abbrev-ref", "HEAD"])
+            .decode()
+            .strip()
+        )
+
+        dirty = (
+            subprocess.check_output(["git", "status", "--porcelain"]).decode().strip()
+        )
+
+        return f"commit: {commit}, branch: {branch}, dirty: {dirty}"
+
+    except Exception:
+        return f"commit: unknown, branch: unknown, dirty: unknown"
