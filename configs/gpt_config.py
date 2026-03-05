@@ -11,10 +11,10 @@ from configs.config import (
 @dataclass
 class ModelGPTConfig(ModelConfig):
     block_size: int = 128
-    n_layer: int = 2
+    n_layer: int = 6
     n_head: int = 4
-    n_embed: int = 64
-    hidden_dim: int = 256
+    n_embed: int = 384
+    hidden_dim: int = 1536  # Typically 4 * n_embed
     ffn_dropout: float = 0.1
     attn_dropout: float = 0.1
     residual_dropout: float = 0.1
@@ -24,11 +24,13 @@ class ModelGPTConfig(ModelConfig):
 class TrainerGPTConfig(TrainerConfig):
     # Training
     batch_size: int = 64
-    max_steps: int = 500
-    val_interval: int = 20
+    max_steps: int = 1000
+    val_interval: int = 50
     lr: float = 3e-4
-    warmup_steps: int = 10
+    min_lr_ratio: float = 0.1
+    betas: tuple = (0.9, 0.95)
     weight_decay: float = 0.01
+    warmup_steps: int = 200
     grad_clip: float = 1.0
 
     # Checkpointing
@@ -37,8 +39,23 @@ class TrainerGPTConfig(TrainerConfig):
 
 
 @dataclass
+class ExperimentalGPTConfig(ExperimentalConfig):
+    experiment_name: str = ""
+
+
+@dataclass
 class GPTConfig(Config):
     data: DataConfig = field(default_factory=DataConfig)
     model: ModelGPTConfig = field(default_factory=ModelGPTConfig)  # type: ignore
     trainer: TrainerGPTConfig = field(default_factory=TrainerGPTConfig)  # type: ignore
-    experimental: ExperimentalConfig = field(default_factory=ExperimentalConfig)
+    experimental: ExperimentalGPTConfig = field(default_factory=ExperimentalGPTConfig)  # type: ignore
+
+
+# Notes:
+# 1.    A high LR may cause training instability (NaNs / loss spikes) especially in the early stages.
+# 2.    A high gradient may cause training instability (NaNs / loss spikes) especially in the early stages.
+# 3.    Gradient norms can be large at start of training, but variance should reduce as training progress.   
+# 4.    If you see NaNs, try reducing the LR and/or enabling gradient clipping.
+# 5.    A loss zig zig followed by NaN is usually exploding gradients (usually followed by softmax overflow), while a NaN followed by smooth loss is usually FP16 overflow.
+# 6.    Scalar drop is sign of overflow detection
+# 7.

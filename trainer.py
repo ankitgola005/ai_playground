@@ -10,6 +10,7 @@ from torch.utils.tensorboard import SummaryWriter
 from torch.profiler import profile, ProfilerActivity
 
 from utils.utils import precision_to_dtype, _build_lr_scheduler
+from tqdm.auto import tqdm
 
 if TYPE_CHECKING:
     from configs.config import Config
@@ -52,6 +53,9 @@ class Trainer:
         self.val_interval: int = config.trainer.val_interval
         self.log_interval = config.trainer.log_interval
         self.experiment_name: str = config.experimental.experiment_name
+
+        self.use_progress_bar: bool = config.trainer.use_progress_bar
+        self.progress_bar = self._create_progress_bar() if self.use_progress_bar else None
 
         self.logger: Optional[str] = config.trainer.logger
         if self.logger == "tensorboard":
@@ -143,6 +147,8 @@ class Trainer:
 
         if self.logger == "tensorboard":
             self.writer.close()
+        if self.progress_bar is not None:
+            self.progress_bar.close()
 
     def _train_one_epoch(
         self,
@@ -210,6 +216,8 @@ class Trainer:
         scheduler.step()
 
         self.global_step += 1
+        if self.progress_bar is not None:
+            self.progress_bar.update(1)
         return logits, loss
 
     def _maybe_log(
@@ -237,6 +245,14 @@ class Trainer:
             }
 
             self._log(kwargs)
+            if self.progress_bar is not None:
+                self.progress_bar.set_postfix(
+                    {
+                        "train_loss": f"{loss.item():.4f}",
+                        "lr": f"{scheduler.get_last_lr()[0]:.2e}",
+                        "tps": f"{kwargs['tps']:.2f}",
+                    }
+                )
             self.step_time_accumulator = 0.0
             self.tokens_accumulator = 0
 
@@ -256,6 +272,12 @@ class Trainer:
             val_loss = self._validate(model, val_dataloader)
             if self.logger == "tensorboard":
                 self.writer.add_scalar("val/loss", val_loss, self.global_step)
+            if self.progress_bar is not None:
+                self.progress_bar.set_postfix(
+                    {
+                        "val_loss": f"{val_loss:.4f}",
+                    }
+                )
 
     def _maybe_checkpoint(self, model):
         if self.save_interval > 0 and (self.global_step) % self.save_interval == 0:
@@ -280,6 +302,19 @@ class Trainer:
 
     def _should_stop(self) -> bool:
         return self.max_steps > 0 and self.global_step >= self.max_steps
+
+    def _create_progress_bar(self):
+        if not self.use_progress_bar or tqdm is None:
+            return None
+
+        total = self.max_steps if self.max_steps > 0 else None
+
+        return tqdm(
+            total=total,
+            initial=self.global_step,
+            dynamic_ncols=True,
+            leave=True,
+        )
 
     def predict(
         self, model: nn.Module, tokenizer, prompts: list[str], max_tokens: int = 500

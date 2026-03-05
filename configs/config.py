@@ -23,16 +23,20 @@ class TrainerConfig:
     batch_size: int = 32  # How many independent sequences will be processed
     max_epochs: int = 1
     max_steps: int = 500
-    val_interval: int = 10
+    val_interval: int = 50
     lr: float = 1e-2
+    min_lr_ratio: float = 0.1
+    betas: tuple = (0.9, 0.95)
     warmup_steps: int = 100
     weight_decay: float = 0.1
     grad_clip: float = 1.0
+    precision: str = "fp16"  # "fp16", "bf16" or "fp32"
 
     # Precision
     use_fp16: bool = False
 
     # Debugging
+    use_progress_bar: bool = True
     logger: str = "tensorboard"  # "basic", "tensorboard", or None
     log_dir: str = "runs/"
     log_interval: int = 10
