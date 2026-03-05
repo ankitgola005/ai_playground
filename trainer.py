@@ -108,7 +108,7 @@ class Trainer:
                 ),
             )
 
-    def configure_optimizer(self, model: nn.Module):
+    def configure_optimizer_and_scheduler(self, model: nn.Module):
         decay = []
         no_decay = []
 
@@ -137,12 +137,7 @@ class Trainer:
             min_lr_ratio=self.config.trainer.min_lr_ratio,
         )
 
-    def fit(
-        self,
-        model: nn.Module,
-        train_dataloader: DataLoader,
-        val_dataloader: Optional[DataLoader] = None,
-    ):
+    def _pre_fit(self, model: nn.Module):
         # Reproinfo
         print("Command:", " ".join(sys.argv))
         print(get_git_info())
@@ -152,15 +147,9 @@ class Trainer:
                 "git_info", json.dumps(get_git_info(), indent=2), global_step=0
             )
 
-        # COnfigure optimizer and scheduler
+        # Configure optimizer and scheduler
         if self.optimizer is None:
-            self.configure_optimizer(model)
-        assert (
-            self.optimizer is not None
-        ), "Optimizer must be configured before training"
-        assert (
-            self.lr_scheduler is not None
-        ), "LR Scheduler must be configured before training"
+            self.configure_optimizer_and_scheduler(model)
 
         # Try to load checkpoint
         step = 0
@@ -177,6 +166,21 @@ class Trainer:
             self.progress_bar = setup_progress_bar(
                 initial_step=step, total_steps=self.max_steps
             )
+
+    def fit(
+        self,
+        model: nn.Module,
+        train_dataloader: DataLoader,
+        val_dataloader: Optional[DataLoader] = None,
+    ):
+        # Pretraining setup
+        self._pre_fit(model)
+        assert (
+            self.optimizer is not None
+        ), "Optimizer must be configured before training"
+        assert (
+            self.lr_scheduler is not None
+        ), "LR Scheduler must be configured before training"
 
         # Train
         model.to(self.device)
@@ -221,9 +225,8 @@ class Trainer:
 
             if self.device == "cuda":
                 torch.cuda.synchronize()
-            end = time.perf_counter()
+            self.step_time_accumulator += time.perf_counter() - start
             self.tokens_accumulator += xb.numel()
-            self.step_time_accumulator += end - start
 
             # Profiling
             if self.profiler is not None:
@@ -298,8 +301,9 @@ class Trainer:
                 "weight_norm": weight_norm,
                 "update_ratio": update_ratio,
                 "tps": (
-                    self.tokens_accumulator / self.step_time_accumulator
-                    if self.step_time_accumulator > 0
+                    self.tokens_accumulator
+                    / (self.step_time_accumulator + self.data_time_accumulator)
+                    if (self.step_time_accumulator + self.data_time_accumulator) > 0
                     else 0.0
                 ),
                 "avg_step_time": avg_step_time,
@@ -355,7 +359,7 @@ class Trainer:
             for xb, yb in val_dataloader:
                 xb, yb = xb.to(self.device), yb.to(self.device)
                 _, loss = model(xb, yb)
-                total_loss += loss * xb.size(0)
+                total_loss += loss.detach() * xb.size(0)
                 count += xb.size(0)
             if was_training:
                 model.train()
@@ -421,7 +425,7 @@ class Trainer:
         model.load_state_dict(checkpoint["model"])
 
         if not self.optimizer:
-            self.configure_optimizer(model)
+            self.configure_optimizer_and_scheduler(model)
         assert (
             self.optimizer is not None
         ), "Optimizer must be configured before loading checkpoint"
