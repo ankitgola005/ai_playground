@@ -201,7 +201,10 @@ class Trainer:
 
         self.scaler.scale(loss).backward()
         self.scaler.unscale_(optimizer)
-        torch.nn.utils.clip_grad_norm_(model.parameters(), 1.0)
+        if self.config.trainer.grad_clip > 0.0:
+            torch.nn.utils.clip_grad_norm_(
+                model.parameters(), self.config.trainer.grad_clip
+            )
         self.scaler.step(optimizer)
         self.scaler.update()
         scheduler.step()
@@ -223,7 +226,7 @@ class Trainer:
             kwargs = {
                 "loss": loss.item(),
                 "lr": scheduler.get_last_lr()[0],
-                "scaler_scale": self.scaler.get_scale() if self.use_amp else None,
+                "scaler_scale": self.scaler.get_scale() if self.scaler else None,
                 "total_norm": total_norm,
                 "tps": (
                     self.tokens_accumulator / self.step_time_accumulator
