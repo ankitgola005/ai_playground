@@ -54,7 +54,7 @@ class TrainerConfig:
 @dataclass
 class ExperimentalConfig:
     seed: int = 42
-    device: str = "cpu"  # "cuda" if torch.cuda.is_available() else "cpu"
+    device: str = "cuda"
     compile: bool = False
     experiment_name: str = ""
 
