@@ -4,6 +4,7 @@ from configs.config import (
     DataConfig,
     ModelConfig,
     TrainerConfig,
+    DistributedConfig,
     ExperimentalConfig,
 )
 
@@ -35,7 +36,7 @@ class TrainerGPTConfig(TrainerConfig):
 
     # Checkpointing
     save_path: str = "checkpoints/mini_gpt"
-    save_interval: int = 0
+    save_interval: int = 500
 
 
 @dataclass
@@ -48,4 +49,5 @@ class GPTConfig(Config):
     data: DataConfig = field(default_factory=DataConfig)
     model: ModelGPTConfig = field(default_factory=ModelGPTConfig)  # type: ignore
     trainer: TrainerGPTConfig = field(default_factory=TrainerGPTConfig)  # type: ignore
+    distributed: DistributedConfig = field(default_factory=DistributedConfig)  # type: ignore
     experimental: ExperimentalGPTConfig = field(default_factory=ExperimentalGPTConfig)  # type: ignore

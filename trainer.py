@@ -7,6 +7,8 @@ from dataclasses import asdict
 import json
 import sys
 
+from distributed.single import SingleDevice
+
 import torch
 import torch.nn as nn
 from torch.utils.tensorboard import SummaryWriter
@@ -26,6 +28,7 @@ if TYPE_CHECKING:
     from torch.utils.data import DataLoader
     from torch.optim import Optimizer, lr_scheduler
     from tqdm import tqdm
+    from distributed.base import Parallel
 
 
 class Trainer:
@@ -44,19 +47,24 @@ class Trainer:
         self.config: "Config" = config
         self.seed = config.experimental.seed
         set_seed(self.seed)
-        self.device: str = (
-            "cuda"
-            if config.experimental.device == "cuda" and torch.cuda.is_available()
-            else "cpu"
-        )
+
+        self.distributed_strategy: str = config.distributed.distributed
+        self.world_size: int = config.distributed.world_size
+        self.rank: int = config.distributed.rank
+        self.backend: str = config.distributed.backend
+        if self.distributed_strategy != "single":
+            raise NotImplementedError(
+                f"Distributed strategy {self.distributed_strategy} is not implemented yet"
+            )
+        self.strategy: Parallel = SingleDevice(device=config.distributed.device)
 
         self.precision: str = config.trainer.precision
         self.precision_dtype: torch.dtype = precision_to_dtype(self.precision)
-        self.use_amp: bool = self.device == "cuda" and self.precision in (
+        self.use_amp: bool = self.strategy.device_type == "cuda" and self.precision in (
             "fp16",
             "bf16",
         )
-        self.scaler = torch.amp.GradScaler(
+        self.scaler = torch.amp.grad_scaler.GradScaler(
             "cuda", enabled=self.use_amp and self.precision == "fp16"
         )
 
@@ -92,7 +100,7 @@ class Trainer:
         if self.use_profiler:
             activities = (
                 [ProfilerActivity.CPU, ProfilerActivity.CUDA]
-                if self.device == "cuda"
+                if self.strategy.device_type == "cuda"
                 else [ProfilerActivity.CPU]
             )
             self.profiler = profile(
@@ -137,7 +145,12 @@ class Trainer:
             min_lr_ratio=self.config.trainer.min_lr_ratio,
         )
 
-    def _pre_fit(self, model: nn.Module):
+    def _pre_fit(
+        self,
+        model: nn.Module,
+        train_dataloader: DataLoader,
+        val_dataloader: Optional[DataLoader],
+    ):
         # Reproinfo
         print("Command:", " ".join(sys.argv))
         print(get_git_info())
@@ -167,14 +180,24 @@ class Trainer:
                 initial_step=step, total_steps=self.max_steps
             )
 
+        model, self.optimizer, train_dataloader = self.strategy.setup_training(
+            model, self.optimizer, dataloader=train_dataloader
+        )
+        if val_dataloader is not None:
+            val_dataloader = self.strategy.prepare_dataloader(val_dataloader)
+
+        return model, train_dataloader, val_dataloader
+
     def fit(
         self,
         model: nn.Module,
         train_dataloader: DataLoader,
-        val_dataloader: Optional[DataLoader] = None,
+        val_dataloader: Optional[DataLoader],
     ):
         # Pretraining setup
-        self._pre_fit(model)
+        model, train_dataloader, val_dataloader = self._pre_fit(
+            model, train_dataloader, val_dataloader
+        )
         assert (
             self.optimizer is not None
         ), "Optimizer must be configured before training"
@@ -183,7 +206,6 @@ class Trainer:
         ), "LR Scheduler must be configured before training"
 
         # Train
-        model.to(self.device)
         profiler_context = self.profiler if self.profiler else nullcontext()
         with profiler_context:
             for epoch in range(self.max_epochs):
@@ -203,6 +225,7 @@ class Trainer:
             self.writer.close()
         if self.progress_bar is not None:
             self.progress_bar.close()
+        self.strategy.cleanup()
 
     def _train_one_epoch(
         self,
@@ -216,14 +239,14 @@ class Trainer:
             if self._should_stop():
                 break
 
-            if self.device == "cuda":
+            if self.strategy.device_type == "cuda":
                 torch.cuda.synchronize()
             start = time.perf_counter()
 
             # Forward and backward pass
             logits, loss = self._train_step(model, xb, yb, optimizer, scheduler)
 
-            if self.device == "cuda":
+            if self.strategy.device_type == "cuda":
                 torch.cuda.synchronize()
             self.step_time_accumulator += time.perf_counter() - start
             self.tokens_accumulator += xb.numel()
@@ -251,11 +274,11 @@ class Trainer:
     ):
         optimizer.zero_grad(set_to_none=True)
         data_start = time.perf_counter()
-        xb, yb = xb.to(self.device), yb.to(self.device)
+        xb, yb = xb.to(self.strategy.device), yb.to(self.strategy.device)
         self.data_time_accumulator += time.perf_counter() - data_start
 
         with torch.autocast(
-            device_type=self.device,
+            device_type=self.strategy.device_type,
             dtype=self.precision_dtype,
             enabled=self.use_amp,
         ):
@@ -265,7 +288,7 @@ class Trainer:
                 f"Non-finite loss detected at step {self.global_step}: {loss}"
             )
 
-        self.scaler.scale(loss).backward()
+        self.strategy.backward(self.scaler.scale(loss))
         for p in model.parameters():
             if p.grad is not None and not torch.isfinite(p.grad).all():
                 raise RuntimeError(
@@ -276,8 +299,7 @@ class Trainer:
             torch.nn.utils.clip_grad_norm_(
                 model.parameters(), self.config.trainer.grad_clip
             )
-        self.scaler.step(optimizer)
-        self.scaler.update()
+        self.strategy.optimizer_step(optimizer, self.scaler)
         scheduler.step()
 
         self.global_step += 1
@@ -309,7 +331,7 @@ class Trainer:
                 "avg_step_time": avg_step_time,
                 "avg_data_time": avg_data_time,
             }
-            if self.device == "cuda":
+            if self.strategy.device_type == "cuda":
                 kwargs["gpu_mem_alloc"] = torch.cuda.memory_allocated() / (1024**3)
                 kwargs["gpu_mem_reserved"] = torch.cuda.memory_reserved() / (1024**3)
 
@@ -351,13 +373,15 @@ class Trainer:
     def _validate(self, model: nn.Module, val_dataloader: DataLoader):
         was_training = model.training
         model.eval()
-        total_loss = torch.zeros(1, device=self.device)
+        total_loss = torch.zeros(1, device=self.strategy.device)
         count = 0
         with torch.no_grad(), torch.autocast(
-            device_type=self.device, dtype=self.precision_dtype, enabled=self.use_amp
+            device_type=self.strategy.device_type,
+            dtype=self.precision_dtype,
+            enabled=self.use_amp,
         ):
             for xb, yb in val_dataloader:
-                xb, yb = xb.to(self.device), yb.to(self.device)
+                xb, yb = xb.to(self.strategy.device), yb.to(self.strategy.device)
                 _, loss = model(xb, yb)
                 total_loss += loss.detach() * xb.size(0)
                 count += xb.size(0)
@@ -376,11 +400,11 @@ class Trainer:
             token_list = [tokenizer.encode(c) for c in prompts]
             max_len = max(len(t) for t in token_list)
             batch_context = torch.zeros(
-                len(prompts), max_len, dtype=torch.long, device=self.device
+                len(prompts), max_len, dtype=torch.long, device=self.strategy.device
             )
             for i, tokens in enumerate(token_list):
                 batch_context[i, : len(tokens)] = torch.tensor(
-                    tokens, device=self.device
+                    tokens, device=self.strategy.device
                 )
 
             output_tokens = batch_context.clone()
@@ -392,25 +416,28 @@ class Trainer:
         return [tokenizer.decode(seq.tolist()) for seq in output_tokens]
 
     def save_checkpoint(self, model: nn.Module):
-        path = self.config.trainer.save_path
-        if self.experiment_name != "":
-            path = Path(path) / self.experiment_name
-        Path(path).mkdir(parents=True, exist_ok=True)
-        checkpoint = {
-            "model": model.state_dict(),
-            "optimizer": self.optimizer.state_dict() if self.optimizer else None,
-            "scheduler": self.lr_scheduler.state_dict() if self.lr_scheduler else None,
-            "scaler": self.scaler.state_dict() if self.scaler else None,
-            "step": self.global_step,
-        }
+        if self.strategy.is_main_process():
+            path = self.config.trainer.save_path
+            if self.experiment_name != "":
+                path = Path(path) / self.experiment_name
+            Path(path).mkdir(parents=True, exist_ok=True)
+            checkpoint = {
+                "model": self.strategy.unwrap_model(model).state_dict(),
+                "optimizer": self.optimizer.state_dict() if self.optimizer else None,
+                "scheduler": (
+                    self.lr_scheduler.state_dict() if self.lr_scheduler else None
+                ),
+                "scaler": self.scaler.state_dict() if self.scaler else None,
+                "step": self.global_step,
+            }
 
-        step_path = Path(path) / f"ckpt_step_{self.global_step}.pt"
-        torch.save(checkpoint, step_path)
+            step_path = Path(path) / f"ckpt_step_{self.global_step}.pt"
+            torch.save(checkpoint, step_path)
 
-        latest_path = Path(path) / "ckpt_latest.pt"
-        temp_path = Path(path) / "ckpt_latest.pt_"
-        shutil.copy2(step_path, temp_path)
-        temp_path.replace(latest_path)
+            latest_path = Path(path) / "ckpt_latest.pt"
+            temp_path = Path(path) / "ckpt_latest.pt_"
+            shutil.copy2(step_path, temp_path)
+            temp_path.replace(latest_path)
 
     def load_checkpoint(self, model: nn.Module) -> int:
         path = self.config.trainer.save_path
@@ -421,7 +448,7 @@ class Trainer:
             print(f"No checkpoint found at {path}")
             return 0
 
-        checkpoint = torch.load(path, map_location=self.device)
+        checkpoint = torch.load(path, map_location=self.strategy.device)
         model.load_state_dict(checkpoint["model"])
 
         if not self.optimizer:

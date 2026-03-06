@@ -6,9 +6,8 @@ from utils.utils import build_data_pipeline
 
 def main():
     config = GPTConfig()
-    device = config.experimental.device
     tokenizer, train_loader, val_loader = build_data_pipeline(config)
-    model = MiniGPT(tokenizer.vocab_size, config=config).to(device)
+    model = MiniGPT(tokenizer.vocab_size, config=config)
     trainer = Trainer(config)
     trainer.fit(model, train_loader, val_loader)
     # trainer.load_checkpoint(model)

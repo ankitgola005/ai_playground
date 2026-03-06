@@ -55,9 +55,17 @@ class TrainerConfig:
 @dataclass
 class ExperimentalConfig:
     seed: int = 42
-    device: str = "cuda"
     compile: bool = False
     experiment_name: str = ""
+
+
+@dataclass
+class DistributedConfig:
+    device: str = "cuda"
+    backend: str = "nccl"  # "nccl" for GPU, "gloo" for CPU
+    rank: int = 0  # Rank of the current process
+    world_size: int = 1  # Total number of processes
+    distributed: str = "single"  # "single", "ddp", "deepspeed", etc.
 
 
 @dataclass
@@ -65,4 +73,5 @@ class Config:
     data: DataConfig = field(default_factory=DataConfig)
     model: ModelConfig = field(default_factory=ModelConfig)
     trainer: TrainerConfig = field(default_factory=TrainerConfig)
+    distributed: DistributedConfig = field(default_factory=DistributedConfig)
     experimental: ExperimentalConfig = field(default_factory=ExperimentalConfig)
