@@ -1,4 +1,5 @@
 from dataclasses import dataclass, field
+from typing import List
 
 
 @dataclass
@@ -39,7 +40,9 @@ class TrainerConfig:
 
     # Debugging
     use_progress_bar: bool = True
-    logger: str = "tensorboard"  # "basic", "tensorboard", or None
+    logger: List[str] = field(
+        default_factory=lambda: ["tensorboard"]
+    )  # "console", "tensorboard", or None
     log_dir: str = "runs/"
     log_interval: int = 10
     use_profiler: bool = False

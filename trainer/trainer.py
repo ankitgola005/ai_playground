@@ -8,15 +8,18 @@ import json
 
 import torch
 import torch.nn as nn
-from torch.utils.tensorboard import SummaryWriter
 from torch.profiler import profile, ProfilerActivity
 
 from ai_playground.distributed.base import Parallel
+from ai_playground.utils.logger.logger_manager import (
+    LoggerManager,
+    create_loggers,
+    BASELINE_METRICS,
+)
 from ai_playground.utils.utils import (
     precision_to_dtype,
     build_lr_scheduler,
     get_norm_info,
-    get_git_info,
     setup_progress_bar,
 )
 
@@ -44,7 +47,9 @@ class Trainer:
         self.strategy: Parallel = strategy
 
         self.config: "Config" = config
-        self.set_seed(config.experimental.seed + (self.strategy.world_size * self.strategy.rank))
+        self.set_seed(
+            config.experimental.seed + (self.strategy.world_size * self.strategy.rank)
+        )
         self.device_type = self.strategy.device_type
         self.device = self.strategy.device
 
@@ -64,22 +69,12 @@ class Trainer:
         self.val_interval: int = config.trainer.val_interval
         self.log_interval = config.trainer.log_interval
         self.experiment_name: str = config.experimental.experiment_name
+        self.logger_manager: LoggerManager = create_loggers(self.strategy, config)
+        self.logger_metrics: set = set(BASELINE_METRICS)
 
         self.use_progress_bar: bool = config.trainer.use_progress_bar
         self.progress_bar: Optional[tqdm] = None
-        self.progress_bar_metrics = (
-            {
-                "train_loss": 0.0,
-                "val_loss": 0.0,
-                "lr": 0.0,
-                "tps": 0.0,
-            }
-            if self.use_progress_bar
-            else None
-        )
-
-        self.logger: Optional[str] = config.trainer.logger
-        self.writer: Optional[SummaryWriter] = None
+        self.progress_bar_metrics = BASELINE_METRICS if self.use_progress_bar else None
 
         self.use_profiler: bool = config.trainer.use_profiler
         self.profiler: Optional[profile] = None
@@ -101,8 +96,8 @@ class Trainer:
                     repeat=config.trainer.profiler_repeat,
                 ),
             )
-    
-    def set_seed(self, seed: int =42):
+
+    def set_seed(self, seed: int = 42):
         import random
         import numpy as np
 
@@ -164,12 +159,6 @@ class Trainer:
             print(f"Resuming training from step: {step}")
         else:
             print("No checkpoint found, starting training from scratch")
-
-        if self.logger == "tensorboard" and self.strategy.is_main_process():
-            log_dir = self.config.trainer.log_dir
-            if self.experiment_name != "":
-                log_dir = Path(log_dir) / self.experiment_name
-            self.writer = SummaryWriter(log_dir=log_dir)
 
         # Setup progress bar
         if self.use_progress_bar and self.progress_bar is None:
@@ -295,63 +284,88 @@ class Trainer:
             self.progress_bar.update(1)
         return logits, loss
 
-    def _maybe_log(
-        self, model: nn.Module, scheduler: lr_scheduler.LambdaLR, loss: torch.Tensor
-    ):
-        if self.log_interval > 0 and self.global_step % self.log_interval == 0:
-            avg_step_time = self.step_time_accumulator / self.log_interval
-            avg_data_time = self.data_time_accumulator / self.log_interval
-            grad_norm, weight_norm, update_ratio = get_norm_info(model, scheduler.get_last_lr()[0])  # type: ignore
-            _loss = loss.item()
-            kwargs = {
-                "loss": _loss,
-                "lr": scheduler.get_last_lr()[0],
-                "scaler_scale": self.scaler.get_scale() if self.scaler else None,
-                "grad_norm": grad_norm,
-                "weight_norm": weight_norm,
-                "update_ratio": update_ratio,
-                "tps": (
-                    self.tokens_accumulator
-                    / (self.step_time_accumulator + self.data_time_accumulator)
-                    if (self.step_time_accumulator + self.data_time_accumulator) > 0
-                    else 0.0
-                ),
-                "avg_step_time": avg_step_time,
-                "avg_data_time": avg_data_time,
-            }
-            if self.strategy.device_type == "cuda":
-                kwargs["gpu_mem_alloc"] = torch.cuda.memory_allocated() / (1024**3)
-                kwargs["gpu_mem_reserved"] = torch.cuda.memory_reserved() / (1024**3)
-
-            self._log(kwargs)
-            if self.progress_bar_metrics is not None and self.progress_bar is not None:
-                self.progress_bar_metrics["train_loss"] = _loss
-                self.progress_bar_metrics["lr"] = scheduler.get_last_lr()[0]  # type: ignore
-                self.progress_bar_metrics["tps"] = kwargs["tps"]
-                self.progress_bar.set_postfix(self.progress_bar_metrics)
-
-            self.step_time_accumulator = 0.0
-            self.data_time_accumulator = 0.0
-            self.tokens_accumulator = 0
-
-    def _log(self, metrics: dict, prefix: str = "train"):
-        if self.logger != "tensorboard" or not self.strategy.is_main_process():
+    def _maybe_log(self, model: nn.Module, scheduler, loss: torch.Tensor):
+        """Logs training metrics if we hit the logging interval."""
+        if self.logger_manager.log_frequency <= 0:
             return
-        for key, value in metrics.items():
-            if value is not None:
-                self.writer.add_scalar(f"{prefix}_{key}", value, self.global_step)
 
-    def _maybe_validate(self, model, val_dataloader):
-        if (
-            val_dataloader is not None
-            and self.val_interval > 0
-            and (self.global_step) % self.val_interval == 0
-        ):
-            val_loss = self._validate(model, val_dataloader)
-            if self.logger == "tensorboard" and self.strategy.is_main_process():
-                self.writer.add_scalar("val/loss", val_loss, self.global_step)
+        if self.global_step % self.logger_manager.log_frequency != 0:
+            return
+
+        metrics = {}
+        if "loss" in self.logger_metrics:
+            metrics["loss"] = loss.item()
+
+        if "lr" in self.logger_metrics:
+            metrics["lr"] = scheduler.get_last_lr()[0]
+
+        if {"grad_norm", "weight_norm", "update_ratio"} & self.logger_metrics:
+            grad_norm, weight_norm, update_ratio = get_norm_info(
+                model, scheduler.get_last_lr()[0]
+            )
+            if grad_norm in self.logger_metrics:
+                metrics["grad_norm"] = grad_norm
+            if weight_norm in self.logger_metrics:
+                metrics["weight_norm"] = weight_norm
+            if update_ratio in self.logger_metrics:
+                metrics["update_ratio"] = update_ratio
+
+        if "tps" in self.logger_metrics:
+            avg_step_time = (
+                self.step_time_accumulator / self.logger_manager.log_frequency
+            )
+            avg_data_time = (
+                self.data_time_accumulator / self.logger_manager.log_frequency
+            )
+            tps = (
+                self.tokens_accumulator
+                / (self.step_time_accumulator + self.data_time_accumulator)
+                if (self.step_time_accumulator + self.data_time_accumulator) > 0
+                else 0.0
+            )
+            metrics["tps"] = tps
+            metrics["avg_step_time"] = avg_step_time
+            metrics["avg_data_time"] = avg_data_time
+
+        # Include CUDA memory metrics if on GPU
+        if self.strategy.device_type == "cuda":
+            if "gpu_mem_alloc" in self.logger_metrics:
+                metrics["gpu_mem_alloc"] = torch.cuda.memory_allocated() / (1024**3)
+            if "gpu_mem_reserved" in self.logger_metrics:
+                metrics["gpu_mem_reserved"] = torch.cuda.memory_reserved() / (1024**3)
+
+        # Log metrics to all configured loggers (console, tensorboard, etc.)
+        self.logger_manager.log_metrics(metrics, step=self.global_step)
+
+        # Update tqdm / progress bar metrics
+        if self.progress_bar_metrics is not None and self.progress_bar is not None:
+            for key, value in metrics.items():
+                self.progress_bar_metrics[key] = value
+            self.progress_bar.set_postfix(self.progress_bar_metrics)
+
+        # Reset accumulators
+        self.step_time_accumulator = 0.0
+        self.data_time_accumulator = 0.0
+        self.tokens_accumulator = 0
+
+    def _maybe_validate(self, model: nn.Module, val_dataloader):
+        """Run validation and log metrics if we hit the validation interval."""
+        if val_dataloader is None or self.val_interval <= 0:
+            return
+
+        if self.global_step % self.val_interval != 0:
+            return
+
+        # Compute validation loss
+        val_loss = self._validate(model, val_dataloader)
+
+        if "val_loss" in self.logger_metrics:
+            metrics = {"val_loss": val_loss}
+            self.logger_manager.log_metrics(metrics, step=self.global_step)
+
+            # Update tqdm / progress bar
             if self.progress_bar is not None and self.progress_bar_metrics is not None:
-                self.progress_bar_metrics["val_loss"] = val_loss
+                self.progress_bar_metrics.update(metrics)
                 self.progress_bar.set_postfix(self.progress_bar_metrics)
 
     def _maybe_checkpoint(self, model):
