@@ -65,10 +65,10 @@ class ExperimentalConfig:
 
 @dataclass
 class DistributedConfig:
-    device: str = "cuda"
+    device: str = "cpu"
     rank: int = 0  # Rank of the current process
     world_size: int = 1  # Total number of processes
-    distributed: str = "ddp"  # "single", "ddp", "deepspeed", etc.
+    distributed: str = "single"  # "single", "ddp", "deepspeed", etc.
 
 
 @dataclass
