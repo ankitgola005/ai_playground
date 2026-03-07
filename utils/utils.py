@@ -31,16 +31,20 @@ def set_seed(seed: int = 42):
         torch.cuda.manual_seed_all(seed)
 
 
-def build_model(config: Config)-> Type[nn.Module]:
+def build_model(config: Config) -> Type[nn.Module]:
     model = None
     if config.model.model_name == "minigpt":
         from ai_playground.models.miniGPT import MiniGPT
+
         model = MiniGPT
     elif config.model.model_name == "bigram":
         from ai_playground.models.bigram import BiGram
+
         model = BiGram
     else:
-        raise NotImplementedError(f"Model {config.model.model_name} is currently not supported.")
+        raise NotImplementedError(
+            f"Model {config.model.model_name} is currently not supported."
+        )
     return model
 
 

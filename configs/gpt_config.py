@@ -42,7 +42,7 @@ class TrainerGPTConfig(TrainerConfig):
 
 @dataclass
 class ExperimentalGPTConfig(ExperimentalConfig):
-    experiment_name: str = "ddp_cpu_2"
+    experiment_name: str = ""
 
 
 @dataclass

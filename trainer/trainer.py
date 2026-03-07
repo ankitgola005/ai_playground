@@ -16,7 +16,6 @@ from ai_playground.utils.utils import (
     precision_to_dtype,
     build_lr_scheduler,
     get_norm_info,
-    set_seed,
     get_git_info,
     setup_progress_bar,
 )
@@ -45,9 +44,10 @@ class Trainer:
         self.strategy: Parallel = strategy
 
         self.config: "Config" = config
+        self.set_seed(config.experimental.seed + (self.strategy.world_size * self.strategy.rank))
         self.device_type = self.strategy.device_type
         self.device = self.strategy.device
-        
+
         self.precision: str = config.trainer.precision
         self.precision_dtype: torch.dtype = precision_to_dtype(self.precision)
         self.use_amp: bool = self.device_type == "cuda" and self.precision in (
@@ -101,6 +101,17 @@ class Trainer:
                     repeat=config.trainer.profiler_repeat,
                 ),
             )
+    
+    def set_seed(self, seed: int =42):
+        import random
+        import numpy as np
+
+        random.seed(seed)
+        np.random.seed(seed)
+        torch.manual_seed(seed)
+
+        if torch.cuda.is_available():
+            torch.cuda.manual_seed_all(seed)
 
     def configure_optimizer_and_scheduler(self, model: nn.Module):
         decay = []
@@ -137,11 +148,8 @@ class Trainer:
         train_dataloader: DataLoader,
         val_dataloader: Optional[DataLoader],
     ):
-        if self.logger == "tensorboard" and self.strategy.is_main_process():
-            log_dir = self.config.trainer.log_dir
-            if self.experiment_name != "":
-                log_dir = Path(log_dir) / self.experiment_name
-            self.writer = SummaryWriter(log_dir=log_dir)
+        self.strategy.setup_environment()
+        model = self.strategy.wrap_model(model)
 
         # Configure optimizer and scheduler
         if self.optimizer is None:
@@ -156,6 +164,12 @@ class Trainer:
             print(f"Resuming training from step: {step}")
         else:
             print("No checkpoint found, starting training from scratch")
+
+        if self.logger == "tensorboard" and self.strategy.is_main_process():
+            log_dir = self.config.trainer.log_dir
+            if self.experiment_name != "":
+                log_dir = Path(log_dir) / self.experiment_name
+            self.writer = SummaryWriter(log_dir=log_dir)
 
         # Setup progress bar
         if self.use_progress_bar and self.progress_bar is None:
@@ -200,12 +214,6 @@ class Trainer:
                     )
         finally:
             self._cleanup()
-
-    def _cleanup(self):
-        if self.logger == "tensorboard" and self.writer is not None:
-            self.writer.close()
-        if self.progress_bar is not None:
-            self.progress_bar.close()
 
     def _train_one_epoch(
         self,
@@ -466,3 +474,9 @@ class Trainer:
 
         if self.logger == "tensorboard":
             self.writer.add_text("config", json.dumps(cfg, indent=2), global_step=0)
+
+    def _cleanup(self):
+        if self.logger == "tensorboard" and self.writer is not None:
+            self.writer.close()
+        if self.progress_bar is not None:
+            self.progress_bar.close()

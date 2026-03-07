@@ -8,18 +8,17 @@ from torch.utils.data import DataLoader, DistributedSampler
 import torch.multiprocessing as mp
 
 from ai_playground.distributed.base import Parallel
-from ai_playground.distributed.training_worker import training_worker
+
+if TYPE_CHECKING:
+    from ai_playground.configs.config import Config
 
 
 class DDParallel(Parallel):
-    def __init__(self, device: str = "cpu", num_devices: int = 1):
-        super().__init__(device, num_devices)
-        self.rank = 0
-        self.world_size = num_devices
-        self.backend = "gloo"
+    def __init__(self, config: Config):
+        super().__init__(config)
         self._sampler = None
 
-    def setup(self):
+    def setup_environment(self):
         pass
 
     def launch(self, trainer_fn, *args, **kwargs):
@@ -54,23 +53,19 @@ class DDParallel(Parallel):
         optimizer: Optional[Optimizer],
         dataloader: DataLoader,
     ):
-
         model = self.wrap_model(model)
 
         if optimizer is not None:
             optimizer = self.setup_optimizer(optimizer, model)
 
         if self.is_distributed():
-
             sampler = DistributedSampler(
                 dataloader.dataset,
                 num_replicas=self.world_size,
                 rank=self.rank,
                 shuffle=True,
             )
-
             self._sampler = sampler
-
             dataloader = DataLoader(
                 dataloader.dataset,
                 batch_size=dataloader.batch_size,
@@ -86,16 +81,14 @@ class DDParallel(Parallel):
             self._sampler.set_epoch(epoch)
 
     def wrap_model(self, model: nn.Module):
-
         model = model.to(self.device)
-
         if self.is_distributed():
-            model = DDP(model, device_ids=[self.rank])
+            device_ids = [self.rank] if self.device.type == "cuda" else None
+            model = DDP(model, device_ids=device_ids)
 
         return model
 
     def unwrap_model(self, model):
-
         if isinstance(model, DDP):
             return model.module
 
