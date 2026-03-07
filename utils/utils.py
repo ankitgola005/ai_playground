@@ -4,10 +4,11 @@ import torch.nn as nn
 import numpy as np
 import subprocess
 from tqdm import tqdm
+from typing import Type
 
-from configs.config import Config
-from data import dataset
-from data.char_tokenizer import CharTokenizer
+from ai_playground.configs.config import Config
+from ai_playground.data import dataset
+from ai_playground.data.char_tokenizer import CharTokenizer
 
 
 def precision_to_dtype(precision: str) -> torch.dtype:
@@ -28,6 +29,19 @@ def set_seed(seed: int = 42):
 
     if torch.cuda.is_available():
         torch.cuda.manual_seed_all(seed)
+
+
+def build_model(config: Config)-> Type[nn.Module]:
+    model = None
+    if config.model.model_name == "minigpt":
+        from ai_playground.models.miniGPT import MiniGPT
+        model = MiniGPT
+    elif config.model.model_name == "bigram":
+        from ai_playground.models.bigram import BiGram
+        model = BiGram
+    else:
+        raise NotImplementedError(f"Model {config.model.model_name} is currently not supported.")
+    return model
 
 
 def build_data_pipeline(config: Config):

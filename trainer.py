@@ -5,16 +5,14 @@ from typing import Optional, TYPE_CHECKING
 import time
 from dataclasses import asdict
 import json
-import sys
-
-from distributed.single import SingleDevice
 
 import torch
 import torch.nn as nn
 from torch.utils.tensorboard import SummaryWriter
 from torch.profiler import profile, ProfilerActivity
 
-from utils.utils import (
+from ai_playground.distributed.base import Parallel
+from ai_playground.utils.utils import (
     precision_to_dtype,
     build_lr_scheduler,
     get_norm_info,
@@ -24,17 +22,17 @@ from utils.utils import (
 )
 
 if TYPE_CHECKING:
-    from configs.config import Config
     from torch.utils.data import DataLoader
     from torch.optim import Optimizer, lr_scheduler
     from tqdm import tqdm
-    from distributed.base import Parallel
+    from ai_playground.configs.config import Config
 
 
 class Trainer:
     def __init__(
         self,
         config: "Config",
+        strategy: Parallel,
         optimizer: Optional[Optimizer] = None,
     ):
         self.optimizer: Optional[Optimizer] = optimizer
@@ -44,23 +42,15 @@ class Trainer:
         self.data_time_accumulator: float = 0.0
         self.tokens_accumulator: int = 0
 
+        self.strategy: Parallel = strategy
+
         self.config: "Config" = config
-        self.seed = config.experimental.seed
-        set_seed(self.seed)
-
-        self.distributed_strategy: str = config.distributed.distributed
-        self.world_size: int = config.distributed.world_size
-        self.rank: int = config.distributed.rank
-        self.backend: str = config.distributed.backend
-        if self.distributed_strategy != "single":
-            raise NotImplementedError(
-                f"Distributed strategy {self.distributed_strategy} is not implemented yet"
-            )
-        self.strategy: Parallel = SingleDevice(device=config.distributed.device)
-
+        self.device_type = self.strategy.device_type
+        self.device = self.strategy.device
+        
         self.precision: str = config.trainer.precision
         self.precision_dtype: torch.dtype = precision_to_dtype(self.precision)
-        self.use_amp: bool = self.strategy.device_type == "cuda" and self.precision in (
+        self.use_amp: bool = self.device_type == "cuda" and self.precision in (
             "fp16",
             "bf16",
         )
@@ -89,18 +79,14 @@ class Trainer:
         )
 
         self.logger: Optional[str] = config.trainer.logger
-        if self.logger == "tensorboard":
-            log_dir = config.trainer.log_dir
-            if self.experiment_name != "":
-                log_dir = Path(log_dir) / self.experiment_name
-            self.writer = SummaryWriter(log_dir=log_dir)
+        self.writer: Optional[SummaryWriter] = None
 
         self.use_profiler: bool = config.trainer.use_profiler
         self.profiler: Optional[profile] = None
         if self.use_profiler:
             activities = (
                 [ProfilerActivity.CPU, ProfilerActivity.CUDA]
-                if self.strategy.device_type == "cuda"
+                if self.device_type == "cuda"
                 else [ProfilerActivity.CPU]
             )
             self.profiler = profile(
@@ -151,14 +137,11 @@ class Trainer:
         train_dataloader: DataLoader,
         val_dataloader: Optional[DataLoader],
     ):
-        # Reproinfo
-        print("Command:", " ".join(sys.argv))
-        print(get_git_info())
-        self._log_config()
-        if self.logger == "tensorboard":
-            self.writer.add_text(
-                "git_info", json.dumps(get_git_info(), indent=2), global_step=0
-            )
+        if self.logger == "tensorboard" and self.strategy.is_main_process():
+            log_dir = self.config.trainer.log_dir
+            if self.experiment_name != "":
+                log_dir = Path(log_dir) / self.experiment_name
+            self.writer = SummaryWriter(log_dir=log_dir)
 
         # Configure optimizer and scheduler
         if self.optimizer is None:
@@ -180,12 +163,6 @@ class Trainer:
                 initial_step=step, total_steps=self.max_steps
             )
 
-        model, self.optimizer, train_dataloader = self.strategy.setup_training(
-            model, self.optimizer, dataloader=train_dataloader
-        )
-        if val_dataloader is not None:
-            val_dataloader = self.strategy.prepare_dataloader(val_dataloader)
-
         return model, train_dataloader, val_dataloader
 
     def fit(
@@ -194,38 +171,41 @@ class Trainer:
         train_dataloader: DataLoader,
         val_dataloader: Optional[DataLoader],
     ):
-        # Pretraining setup
-        model, train_dataloader, val_dataloader = self._pre_fit(
-            model, train_dataloader, val_dataloader
-        )
-        assert (
-            self.optimizer is not None
-        ), "Optimizer must be configured before training"
-        assert (
-            self.lr_scheduler is not None
-        ), "LR Scheduler must be configured before training"
+        try:
+            # Pretraining setup
+            model, train_dataloader, val_dataloader = self._pre_fit(
+                model, train_dataloader, val_dataloader
+            )
+            assert (
+                self.optimizer is not None
+            ), "Optimizer must be configured before training"
+            assert (
+                self.lr_scheduler is not None
+            ), "LR Scheduler must be configured before training"
 
-        # Train
-        profiler_context = self.profiler if self.profiler else nullcontext()
-        with profiler_context:
-            for epoch in range(self.max_epochs):
-                if self._should_stop():
-                    break
+            # Train
+            profiler_context = self.profiler if self.profiler else nullcontext()
+            with profiler_context:
+                for epoch in range(self.max_epochs):
+                    if self._should_stop():
+                        break
 
-                model.train()
-                self._train_one_epoch(
-                    model,
-                    self.optimizer,
-                    self.lr_scheduler,
-                    train_dataloader,
-                    val_dataloader,
-                )
+                    model.train()
+                    self._train_one_epoch(
+                        model,
+                        self.optimizer,
+                        self.lr_scheduler,
+                        train_dataloader,
+                        val_dataloader,
+                    )
+        finally:
+            self._cleanup()
 
-        if self.logger == "tensorboard":
+    def _cleanup(self):
+        if self.logger == "tensorboard" and self.writer is not None:
             self.writer.close()
         if self.progress_bar is not None:
             self.progress_bar.close()
-        self.strategy.cleanup()
 
     def _train_one_epoch(
         self,
@@ -347,7 +327,7 @@ class Trainer:
             self.tokens_accumulator = 0
 
     def _log(self, metrics: dict, prefix: str = "train"):
-        if self.logger != "tensorboard":
+        if self.logger != "tensorboard" or not self.strategy.is_main_process():
             return
         for key, value in metrics.items():
             if value is not None:
@@ -360,7 +340,7 @@ class Trainer:
             and (self.global_step) % self.val_interval == 0
         ):
             val_loss = self._validate(model, val_dataloader)
-            if self.logger == "tensorboard":
+            if self.logger == "tensorboard" and self.strategy.is_main_process():
                 self.writer.add_scalar("val/loss", val_loss, self.global_step)
             if self.progress_bar is not None and self.progress_bar_metrics is not None:
                 self.progress_bar_metrics["val_loss"] = val_loss

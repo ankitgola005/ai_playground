@@ -1,5 +1,5 @@
 from dataclasses import dataclass, field
-from configs.config import (
+from ai_playground.configs.config import (
     Config,
     DataConfig,
     ModelConfig,
@@ -11,7 +11,7 @@ from configs.config import (
 
 @dataclass
 class ModelGPTConfig(ModelConfig):
-    model: str = "miniGPT"
+    model_name: str = "minigpt"
     block_size: int = 128
     n_layer: int = 6
     n_head: int = 4

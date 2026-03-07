@@ -3,14 +3,14 @@ from dataclasses import dataclass, field
 
 @dataclass
 class DataConfig:
-    data_path: str = "data/datasets/text_datasets/shakespeare.txt"
+    data_path: str = "ai_playground/data/datasets/text_datasets/shakespeare.txt"
     split: float = 0.9
     num_workers: int = 0
 
 
 @dataclass
 class ModelConfig:
-    model_name: str | None = None
+    model_name: str = ""
     block_size: int = 8  # Maximum context length
     n_embed: int = 4
     n_layer: int = 4

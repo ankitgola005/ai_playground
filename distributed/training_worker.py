@@ -5,7 +5,7 @@ import torch
 import torch.distributed as dist
 
 from ai_playground.trainer import Trainer
-from utils.utils import build_data_pipeline, build_model
+from ai_playground.utils.utils import build_data_pipeline, build_model
 
 if TYPE_CHECKING:
     from configs.config import Config
