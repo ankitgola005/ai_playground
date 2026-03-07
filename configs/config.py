@@ -10,6 +10,7 @@ class DataConfig:
 
 @dataclass
 class ModelConfig:
+    model_name: str | None = None
     block_size: int = 8  # Maximum context length
     n_embed: int = 4
     n_layer: int = 4
@@ -62,10 +63,9 @@ class ExperimentalConfig:
 @dataclass
 class DistributedConfig:
     device: str = "cuda"
-    backend: str = "nccl"  # "nccl" for GPU, "gloo" for CPU
     rank: int = 0  # Rank of the current process
     world_size: int = 1  # Total number of processes
-    distributed: str = "single"  # "single", "ddp", "deepspeed", etc.
+    distributed: str = "ddp"  # "single", "ddp", "deepspeed", etc.
 
 
 @dataclass
