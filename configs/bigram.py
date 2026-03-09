@@ -11,8 +11,8 @@ class DataConfig:
 
 @dataclass
 class ModelConfig:
-    model_name: str = ""
-    model_kwargs: dict = field(default_factory=dict)
+    model_name: str = "bigram"
+    model_kwargs: dict = field(default_factory=lambda: {})
 
 
 @dataclass

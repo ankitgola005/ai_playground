@@ -30,7 +30,9 @@ def seed_worker(worker_id: int):
 
 
 def build_dataloader(config: Config, encoded_data: torch.Tensor) -> DataLoader:
-    dataset = TextDataset(encoded_data, block_size=config.model.block_size)
+    dataset = TextDataset(
+        encoded_data, block_size=config.model.model_kwargs["block_size"]
+    )
     generator = torch.Generator().manual_seed(config.experimental.seed)
     dataloader = DataLoader(
         dataset,

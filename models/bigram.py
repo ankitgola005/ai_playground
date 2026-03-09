@@ -4,7 +4,7 @@ from torch.nn import functional as F
 
 
 class BiGram(nn.Module):
-    def __init__(self, vocab_size=32000, config=None):
+    def __init__(self, vocab_size=32000):
         super().__init__()
         self.tok_emb = nn.Embedding(vocab_size, vocab_size)
 

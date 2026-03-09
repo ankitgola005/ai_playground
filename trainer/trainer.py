@@ -143,6 +143,7 @@ class Trainer:
         train_dataloader: DataLoader,
         val_dataloader: Optional[DataLoader],
     ):
+        self.logger_manager.log_config(self.config)
         self.strategy.setup_environment()
         model = self.strategy.wrap_model(model)
 
@@ -479,18 +480,7 @@ class Trainer:
 
         return ckpt if ckpt.exists() else None
 
-    def _log_config(self):
-        cfg = asdict(self.config)
-
-        print("\n" + "=" * 20 + " Config " + "=" * 20)
-        print(json.dumps(cfg, indent=2))
-        print("=" * 50 + "\n")
-
-        if self.logger == "tensorboard":
-            self.writer.add_text("config", json.dumps(cfg, indent=2), global_step=0)
-
     def _cleanup(self):
-        if self.logger == "tensorboard" and self.writer is not None:
-            self.writer.close()
+        self.logger_manager.finalize()
         if self.progress_bar is not None:
             self.progress_bar.close()

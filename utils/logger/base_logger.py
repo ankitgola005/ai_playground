@@ -16,6 +16,9 @@ class Logger(ABC):
             self.log_dir = Path(self.log_dir) / config.experimental.experiment_name
         os.makedirs(self.log_dir, exist_ok=True)
 
+    def log_config(self, config: dict):
+        pass
+
     @abstractmethod
     def log_metrics(self, metrics: dict, step: int):
         pass

@@ -10,11 +10,11 @@ import torch.multiprocessing as mp
 from ai_playground.distributed.base import Parallel
 
 if TYPE_CHECKING:
-    from ai_playground.configs.config import Config
+    from ai_playground.configs.config import DistributedConfig
 
 
 class DDParallel(Parallel):
-    def __init__(self, config: Config):
+    def __init__(self, config: DistributedConfig):
         super().__init__(config)
         self._sampler = None
 
