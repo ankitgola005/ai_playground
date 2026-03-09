@@ -1,0 +1,50 @@
+
+data:
+  data_path: "ai_playground/data/datasets/text_datasets/shakespeare.txt"
+  split: 0.9
+  num_workers: 0
+
+model:
+  model_name: "mnist"
+  model_kwargs:
+    input_dims: 784
+    hidden_dims: [256]
+    output_dims: 10
+    droutput: 0.0
+
+trainer:
+  auto_restart: true
+  batch_size: 64
+  max_epochs: 1
+  max_steps: 500
+  val_interval: 100
+  lr: 0.0003
+  min_lr_ratio: 0.1
+  betas: [0.9, 0.95]
+  warmup_steps: 50
+  weight_decay: 0.01
+  grad_clip: 1.0
+  precision: "fp16"
+  use_fp16: false
+  use_progress_bar: true
+  logger: ["tensorboard"]
+  log_dir: "runs/"
+  log_interval: 10
+  use_profiler: false
+  profiler_wait: 1
+  profiler_warmup: 1
+  profiler_active: 3
+  profiler_repeat: 2
+  save_path: "checkpoints/mini_gpt"
+  save_interval: 0
+
+experimental:
+  seed: 42
+  compile: false
+  experiment_name: "single"
+
+distributed:
+  device: "cuda"
+  rank: 0
+  world_size: 1
+  distributed: "single"

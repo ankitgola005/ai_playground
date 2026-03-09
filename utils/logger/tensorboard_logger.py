@@ -1,6 +1,5 @@
 from torch.utils.tensorboard import SummaryWriter
 
-from ai_playground.configs.config import Config
 from ai_playground.utils.logger.base_logger import Logger
 
 

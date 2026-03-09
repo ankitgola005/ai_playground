@@ -1,11 +1,11 @@
 from ai_playground.utils.logger import console_logger, tensorboard_logger
-from dataclasses import asdict
 import json
+from ai_playground.utils.load_yaml_config import config_to_dict
 
 from typing import TYPE_CHECKING, List
 
 if TYPE_CHECKING:
-    from ai_playground.configs.config import Config
+    from ai_playground.configs.config import ConfigProtocol
     from ai_playground.distributed.base import Parallel
     from ai_playground.utils.logger.base_logger import Logger
 
@@ -29,14 +29,16 @@ FULL_METRICS: dict = {
 
 
 class LoggerManager:
-    def __init__(self, logger: List[Logger], strategy: Parallel, config: Config):
+    def __init__(
+        self, logger: List[Logger], strategy: Parallel, config: ConfigProtocol
+    ):
         self.loggers: List[Logger] = logger
         self.strategy = strategy
         self.log_frequency: int = config.trainer.log_interval
 
-    def log_config(self, config: Config):
-        cfg = asdict(config)
-        print("\n" + "=" * 20 + " Config " + "=" * 20)
+    def log_config(self, config: ConfigProtocol):
+        cfg = config_to_dict(config)
+        print("\n" + "=" * 20 + " ConfigProtocol " + "=" * 20)
         print(json.dumps(cfg, indent=2))
         print("=" * 50 + "\n")
 
@@ -63,7 +65,7 @@ class LoggerManager:
             logger.finalize()
 
 
-def create_loggers(strategy: Parallel, config: Config):
+def create_loggers(strategy: Parallel, config: ConfigProtocol):
     logger_configs = config.trainer.logger
     loggers = []
     for logger in logger_configs:

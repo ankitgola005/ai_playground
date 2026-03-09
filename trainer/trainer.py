@@ -3,8 +3,6 @@ from contextlib import nullcontext
 import shutil
 from typing import Optional, TYPE_CHECKING
 import time
-from dataclasses import asdict
-import json
 
 import torch
 import torch.nn as nn
@@ -96,6 +94,8 @@ class Trainer:
                     repeat=config.trainer.profiler_repeat,
                 ),
             )
+        self.last_train_loss = 0.0
+        self.last_val_loss = 0.0
 
     def set_seed(self, seed: int = 42):
         import random
@@ -294,8 +294,9 @@ class Trainer:
             return
 
         metrics = {}
-        if "loss" in self.logger_metrics:
-            metrics["loss"] = loss.item()
+        if "train_loss" in self.logger_metrics:
+            metrics["train_loss"] = loss.item()
+            self.last_train_loss = loss.item()
 
         if "lr" in self.logger_metrics:
             metrics["lr"] = scheduler.get_last_lr()[0]
@@ -361,6 +362,7 @@ class Trainer:
         val_loss = self._validate(model, val_dataloader)
 
         if "val_loss" in self.logger_metrics:
+            self.last_val_loss = val_loss
             metrics = {"val_loss": val_loss}
             self.logger_manager.log_metrics(metrics, step=self.global_step)
 

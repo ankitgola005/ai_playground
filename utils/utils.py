@@ -6,7 +6,7 @@ import subprocess
 from tqdm import tqdm
 from typing import Type, TYPE_CHECKING
 
-from ai_playground.configs.config import Config, DistributedConfig
+from ai_playground.configs.config import ConfigProtocol, DistributedConfigProtocol
 from ai_playground.data import dataset
 from ai_playground.data.char_tokenizer import CharTokenizer
 
@@ -34,7 +34,7 @@ def set_seed(seed: int = 42):
         torch.cuda.manual_seed_all(seed)
 
 
-def build_model(config: Config) -> Type[nn.Module]:
+def build_model(config: ConfigProtocol) -> Type[nn.Module]:
     model = None
     if config.model.model_name == "minigpt":
         from ai_playground.models.miniGPT import MiniGPT
@@ -55,7 +55,7 @@ def build_model(config: Config) -> Type[nn.Module]:
     return model
 
 
-def get_strategy(config: DistributedConfig) -> Parallel:
+def get_strategy(config: DistributedConfigProtocol) -> Parallel:
     if config.distributed == "single":
         from ai_playground.distributed.single import SingleDevice
 
@@ -71,7 +71,7 @@ def get_strategy(config: DistributedConfig) -> Parallel:
     return strategy
 
 
-def build_data_pipeline(config: Config):
+def build_data_pipeline(config: ConfigProtocol):
     with open(config.data.data_path, "r") as f:
         text = f.read()
 
@@ -153,4 +153,4 @@ def get_git_info():
         return f"commit: {commit}, branch: {branch}, dirty: {dirty}"
 
     except Exception:
-        return f"commit: unknown, branch: unknown, dirty: unknown"
+        return "commit: unknown, branch: unknown, dirty: unknown"

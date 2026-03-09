@@ -1,76 +1,61 @@
-from dataclasses import dataclass, field
-from typing import List
+# Utility for type hints
+from typing import Protocol, Dict, List, Tuple
 
 
-@dataclass
-class DataConfig:
-    data_path: str = "ai_playground/data/datasets/text_datasets/shakespeare.txt"
-    split: float = 0.9
-    num_workers: int = 0
+class DataConfigProtocol(Protocol):
+    data_path: str
+    split: float
+    num_workers: int
 
 
-@dataclass
-class ModelConfig:
-    model_name: str = ""
-    model_kwargs: dict = field(default_factory=dict)
+class ModelConfigProtocol(Protocol):
+    model_name: str
+    model_kwargs: Dict
 
 
-@dataclass
-class TrainerConfig:
-    # Training
-    auto_restart: bool = True
-    batch_size: int = 32  # How many independent sequences will be processed
-    max_epochs: int = 1
-    max_steps: int = 500
-    val_interval: int = 50
-    lr: float = 1e-2
-    min_lr_ratio: float = 0.1
-    betas: tuple = (0.9, 0.95)
-    warmup_steps: int = 100
-    weight_decay: float = 0.1
-    grad_clip: float = 1.0
-    precision: str = "fp16"  # "fp16", "bf16" or "fp32"
-
-    # Precision
-    use_fp16: bool = False
-
-    # Debugging
-    use_progress_bar: bool = True
-    logger: List[str] = field(
-        default_factory=lambda: ["tensorboard"]
-    )  # "console", "tensorboard", or None
-    log_dir: str = "runs/"
-    log_interval: int = 10
-    use_profiler: bool = False
-    profiler_wait: int = 1
-    profiler_warmup: int = 1
-    profiler_active: int = 3
-    profiler_repeat: int = 2
-
-    # Checkpointing
-    save_path: str = "checkpoints"
-    save_interval: int = 0
+class TrainerConfigProtocol(Protocol):
+    auto_restart: bool
+    batch_size: int
+    max_epochs: int
+    max_steps: int
+    val_interval: int
+    lr: float
+    min_lr_ratio: float
+    betas: Tuple[float, float]
+    warmup_steps: int
+    weight_decay: float
+    grad_clip: float
+    precision: str
+    use_fp16: bool
+    use_progress_bar: bool
+    logger: List[str]
+    log_dir: str
+    log_interval: int
+    use_profiler: bool
+    profiler_wait: int
+    profiler_warmup: int
+    profiler_active: int
+    profiler_repeat: int
+    save_path: str
+    save_interval: int
 
 
-@dataclass
-class ExperimentalConfig:
-    seed: int = 42
-    compile: bool = False
-    experiment_name: str = ""
+class ExperimentalConfigProtocol(Protocol):
+    seed: int
+    compile: bool
+    experiment_name: str
 
 
-@dataclass
-class DistributedConfig:
-    device: str = "cpu"
-    rank: int = 0  # Rank of the current process
-    world_size: int = 1  # Total number of processes
-    distributed: str = "single"  # "single", "ddp", "deepspeed", etc.
+class DistributedConfigProtocol(Protocol):
+    device: str
+    rank: int
+    world_size: int
+    distributed: str
 
 
-@dataclass
-class Config:
-    data: DataConfig = field(default_factory=DataConfig)
-    model: ModelConfig = field(default_factory=ModelConfig)
-    trainer: TrainerConfig = field(default_factory=TrainerConfig)
-    distributed: DistributedConfig = field(default_factory=DistributedConfig)
-    experimental: ExperimentalConfig = field(default_factory=ExperimentalConfig)
+class ConfigProtocol(Protocol):
+    data: DataConfigProtocol
+    model: ModelConfigProtocol
+    trainer: TrainerConfigProtocol
+    distributed: DistributedConfigProtocol
+    experimental: ExperimentalConfigProtocol
