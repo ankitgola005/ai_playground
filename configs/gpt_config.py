@@ -1,5 +1,5 @@
 from dataclasses import dataclass, field
-from configs.config import (
+from ai_playground.configs.config import (
     Config,
     DataConfig,
     ModelConfig,
@@ -11,15 +11,19 @@ from configs.config import (
 
 @dataclass
 class ModelGPTConfig(ModelConfig):
-    model: str = "miniGPT"
-    block_size: int = 128
-    n_layer: int = 6
-    n_head: int = 4
-    n_embed: int = 384
-    hidden_dim: int = 1536  # Typically 4 * n_embed
-    ffn_dropout: float = 0.1
-    attn_dropout: float = 0.1
-    residual_dropout: float = 0.1
+    model_name: str = "minigpt"
+    model_kwargs: dict = field(
+        default_factory=lambda: {
+            "block_size": 128,
+            "n_layer": 6,
+            "n_head": 4,
+            "n_embed": 384,
+            "hidden_dim": 1536,  # Typically 4 * n_embed,
+            "ffn_dropout": 0.1,
+            "attn_dropout": 0.1,
+            "residual_dropout": 0.1,
+        }
+    )
 
 
 @dataclass
@@ -42,7 +46,7 @@ class TrainerGPTConfig(TrainerConfig):
 
 @dataclass
 class ExperimentalGPTConfig(ExperimentalConfig):
-    experiment_name: str = "ddp_cpu_2"
+    experiment_name: str = "ddp"
 
 
 @dataclass

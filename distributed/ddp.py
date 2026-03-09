@@ -7,42 +7,52 @@ from torch.optim import Optimizer
 from torch.utils.data import DataLoader, DistributedSampler
 import torch.multiprocessing as mp
 
-from .base import Parallel
-from .training_worker import training_worker
+from ai_playground.distributed.base import Parallel
+
+if TYPE_CHECKING:
+    from ai_playground.configs.config import DistributedConfig
 
 
 class DDParallel(Parallel):
-    def __init__(self, device: str = "cuda", num_devices: int = 1, rank: int = 0):
-        super().__init__(device, num_devices)
-        self.rank = rank
-        self.world_size = num_devices
+    def __init__(self, config: DistributedConfig):
+        super().__init__(config)
+        self._sampler = None
 
-    def setup(self):
+    def setup_environment(self):
         pass
 
     def launch(self, trainer_fn, *args, **kwargs):
+
         mp.spawn(
-            training_worker,
-            args=(trainer_fn, args, kwargs),
+            self._worker_entry,
+            args=(self, trainer_fn, args, kwargs),
             nprocs=self.world_size,
             join=True,
         )
-    
+
     @staticmethod
     def _worker_entry(rank, strategy, trainer_fn, args, kwargs):
-        # torch.cuda.set_device(rank)
+        strategy.rank = rank
         dist.init_process_group(
             backend=strategy.backend,
-            rank=strategy.rank,
+            rank=rank,
             world_size=strategy.world_size,
         )
 
         trainer_fn(*args, **kwargs)
+
         strategy.cleanup()
 
+    def cleanup(self):
+        if dist.is_initialized():
+            dist.destroy_process_group()
+
     def setup_training(
-        self, model: nn.Module, optimizer: Optimizer | None, dataloader: DataLoader
-    ) -> tuple[Module, Optimizer | None, DataLoader]:
+        self,
+        model: nn.Module,
+        optimizer: Optional[Optimizer],
+        dataloader: DataLoader,
+    ):
         model = self.wrap_model(model)
 
         if optimizer is not None:
@@ -56,21 +66,30 @@ class DDParallel(Parallel):
                 shuffle=True,
             )
             self._sampler = sampler
-            dataloader.sampler = sampler
+            dataloader = DataLoader(
+                dataloader.dataset,
+                batch_size=dataloader.batch_size,
+                sampler=sampler,
+                num_workers=dataloader.num_workers,
+                pin_memory=dataloader.pin_memory,
+            )
+
         return model, optimizer, dataloader
 
-    def prepare_dataloader(self, dataloader):
-        if self.is_distributed() and hasattr(self, "_sampler"):
-            self._sampler.set_epoch(self.rank)  # can be overridden per epoch in trainer
-        return dataloader
+    def set_epoch(self, epoch: int):
+        if self._sampler is not None:
+            self._sampler.set_epoch(epoch)
 
-    def wrap_model(self, model: nn.Module) -> nn.Module:
+    def wrap_model(self, model: nn.Module):
         model = model.to(self.device)
         if self.is_distributed():
-            model = DDP(model)
+            device_ids = [self.rank] if self.device.type == "cuda" else None
+            model = DDP(model, device_ids=device_ids)
+
         return model
-    
-    def unwrap_model(self, model: nn.Module) -> nn.Module:
-        if isinstance(model, nn.parallel.DistributedDataParallel):
+
+    def unwrap_model(self, model):
+        if isinstance(model, DDP):
             return model.module
+
         return model

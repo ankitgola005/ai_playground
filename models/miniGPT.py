@@ -16,28 +16,32 @@ class MiniGPT(nn.Module):
 
         # Embeddings
         self.embeddings = EmbeddingWrapper(
-            vocab_size, config.model.block_size, config.model.n_embed
+            vocab_size,
+            config.model.model_kwargs["block_size"],
+            config.model.model_kwargs["n_embed"],
         )
 
         # Transformer blocks
         self.transformer_blocks = nn.Sequential(
             *[
                 TransformerBlock(
-                    config.model.n_embed,
-                    config.model.n_head,
-                    config.model.block_size,
-                    config.model.hidden_dim,
-                    config.model.attn_dropout,
-                    config.model.residual_dropout,
-                    config.model.ffn_dropout,
+                    config.model.model_kwargs["n_embed"],
+                    config.model.model_kwargs["n_head"],
+                    config.model.model_kwargs["block_size"],
+                    config.model.model_kwargs["hidden_dim"],
+                    config.model.model_kwargs["attn_dropout"],
+                    config.model.model_kwargs["residual_dropout"],
+                    config.model.model_kwargs["ffn_dropout"],
                 )
-                for _ in range(config.model.n_layer)
+                for _ in range(config.model.model_kwargs["n_layer"])
             ]
         )
 
         # Final Layernorm + Linear head
-        self.layernorm = nn.LayerNorm(config.model.n_embed)
-        self.head = nn.Linear(config.model.n_embed, vocab_size, bias=False)
+        self.layernorm = nn.LayerNorm(config.model.model_kwargs["n_embed"])
+        self.head = nn.Linear(
+            config.model.model_kwargs["n_embed"], vocab_size, bias=False
+        )
 
     def forward(self, idx, targets=None):
         x = self.embeddings(idx)

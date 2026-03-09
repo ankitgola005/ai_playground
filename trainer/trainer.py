@@ -5,36 +5,36 @@ from typing import Optional, TYPE_CHECKING
 import time
 from dataclasses import asdict
 import json
-import sys
-
-from distributed.single import SingleDevice
 
 import torch
 import torch.nn as nn
-from torch.utils.tensorboard import SummaryWriter
 from torch.profiler import profile, ProfilerActivity
 
-from utils.utils import (
+from ai_playground.distributed.base import Parallel
+from ai_playground.utils.logger.logger_manager import (
+    LoggerManager,
+    create_loggers,
+    BASELINE_METRICS,
+)
+from ai_playground.utils.utils import (
     precision_to_dtype,
     build_lr_scheduler,
     get_norm_info,
-    set_seed,
-    get_git_info,
     setup_progress_bar,
 )
 
 if TYPE_CHECKING:
-    from configs.config import Config
     from torch.utils.data import DataLoader
     from torch.optim import Optimizer, lr_scheduler
     from tqdm import tqdm
-    from distributed.base import Parallel
+    from ai_playground.configs.config import Config
 
 
 class Trainer:
     def __init__(
         self,
         config: "Config",
+        strategy: Parallel,
         optimizer: Optional[Optimizer] = None,
     ):
         self.optimizer: Optional[Optimizer] = optimizer
@@ -44,23 +44,18 @@ class Trainer:
         self.data_time_accumulator: float = 0.0
         self.tokens_accumulator: int = 0
 
-        self.config: "Config" = config
-        self.seed = config.experimental.seed
-        set_seed(self.seed)
+        self.strategy: Parallel = strategy
 
-        self.distributed_strategy: str = config.distributed.distributed
-        self.world_size: int = config.distributed.world_size
-        self.rank: int = config.distributed.rank
-        self.backend: str = config.distributed.backend
-        if self.distributed_strategy != "single":
-            raise NotImplementedError(
-                f"Distributed strategy {self.distributed_strategy} is not implemented yet"
-            )
-        self.strategy: Parallel = SingleDevice(device=config.distributed.device)
+        self.config: "Config" = config
+        self.set_seed(
+            config.experimental.seed + (self.strategy.world_size * self.strategy.rank)
+        )
+        self.device_type = self.strategy.device_type
+        self.device = self.strategy.device
 
         self.precision: str = config.trainer.precision
         self.precision_dtype: torch.dtype = precision_to_dtype(self.precision)
-        self.use_amp: bool = self.strategy.device_type == "cuda" and self.precision in (
+        self.use_amp: bool = self.device_type == "cuda" and self.precision in (
             "fp16",
             "bf16",
         )
@@ -74,33 +69,19 @@ class Trainer:
         self.val_interval: int = config.trainer.val_interval
         self.log_interval = config.trainer.log_interval
         self.experiment_name: str = config.experimental.experiment_name
+        self.logger_manager: LoggerManager = create_loggers(self.strategy, config)
+        self.logger_metrics: set = set(BASELINE_METRICS)
 
         self.use_progress_bar: bool = config.trainer.use_progress_bar
         self.progress_bar: Optional[tqdm] = None
-        self.progress_bar_metrics = (
-            {
-                "train_loss": 0.0,
-                "val_loss": 0.0,
-                "lr": 0.0,
-                "tps": 0.0,
-            }
-            if self.use_progress_bar
-            else None
-        )
-
-        self.logger: Optional[str] = config.trainer.logger
-        if self.logger == "tensorboard":
-            log_dir = config.trainer.log_dir
-            if self.experiment_name != "":
-                log_dir = Path(log_dir) / self.experiment_name
-            self.writer = SummaryWriter(log_dir=log_dir)
+        self.progress_bar_metrics = BASELINE_METRICS if self.use_progress_bar else None
 
         self.use_profiler: bool = config.trainer.use_profiler
         self.profiler: Optional[profile] = None
         if self.use_profiler:
             activities = (
                 [ProfilerActivity.CPU, ProfilerActivity.CUDA]
-                if self.strategy.device_type == "cuda"
+                if self.device_type == "cuda"
                 else [ProfilerActivity.CPU]
             )
             self.profiler = profile(
@@ -115,6 +96,17 @@ class Trainer:
                     repeat=config.trainer.profiler_repeat,
                 ),
             )
+
+    def set_seed(self, seed: int = 42):
+        import random
+        import numpy as np
+
+        random.seed(seed)
+        np.random.seed(seed)
+        torch.manual_seed(seed)
+
+        if torch.cuda.is_available():
+            torch.cuda.manual_seed_all(seed)
 
     def configure_optimizer_and_scheduler(self, model: nn.Module):
         decay = []
@@ -151,14 +143,9 @@ class Trainer:
         train_dataloader: DataLoader,
         val_dataloader: Optional[DataLoader],
     ):
-        # Reproinfo
-        print("Command:", " ".join(sys.argv))
-        print(get_git_info())
-        self._log_config()
-        if self.logger == "tensorboard":
-            self.writer.add_text(
-                "git_info", json.dumps(get_git_info(), indent=2), global_step=0
-            )
+        self.logger_manager.log_config(self.config)
+        self.strategy.setup_environment()
+        model = self.strategy.wrap_model(model)
 
         # Configure optimizer and scheduler
         if self.optimizer is None:
@@ -180,12 +167,6 @@ class Trainer:
                 initial_step=step, total_steps=self.max_steps
             )
 
-        model, self.optimizer, train_dataloader = self.strategy.setup_training(
-            model, self.optimizer, dataloader=train_dataloader
-        )
-        if val_dataloader is not None:
-            val_dataloader = self.strategy.prepare_dataloader(val_dataloader)
-
         return model, train_dataloader, val_dataloader
 
     def fit(
@@ -194,38 +175,35 @@ class Trainer:
         train_dataloader: DataLoader,
         val_dataloader: Optional[DataLoader],
     ):
-        # Pretraining setup
-        model, train_dataloader, val_dataloader = self._pre_fit(
-            model, train_dataloader, val_dataloader
-        )
-        assert (
-            self.optimizer is not None
-        ), "Optimizer must be configured before training"
-        assert (
-            self.lr_scheduler is not None
-        ), "LR Scheduler must be configured before training"
+        try:
+            # Pretraining setup
+            model, train_dataloader, val_dataloader = self._pre_fit(
+                model, train_dataloader, val_dataloader
+            )
+            assert (
+                self.optimizer is not None
+            ), "Optimizer must be configured before training"
+            assert (
+                self.lr_scheduler is not None
+            ), "LR Scheduler must be configured before training"
 
-        # Train
-        profiler_context = self.profiler if self.profiler else nullcontext()
-        with profiler_context:
-            for epoch in range(self.max_epochs):
-                if self._should_stop():
-                    break
+            # Train
+            profiler_context = self.profiler if self.profiler else nullcontext()
+            with profiler_context:
+                for epoch in range(self.max_epochs):
+                    if self._should_stop():
+                        break
 
-                model.train()
-                self._train_one_epoch(
-                    model,
-                    self.optimizer,
-                    self.lr_scheduler,
-                    train_dataloader,
-                    val_dataloader,
-                )
-
-        if self.logger == "tensorboard":
-            self.writer.close()
-        if self.progress_bar is not None:
-            self.progress_bar.close()
-        self.strategy.cleanup()
+                    model.train()
+                    self._train_one_epoch(
+                        model,
+                        self.optimizer,
+                        self.lr_scheduler,
+                        train_dataloader,
+                        val_dataloader,
+                    )
+        finally:
+            self._cleanup()
 
     def _train_one_epoch(
         self,
@@ -307,63 +285,88 @@ class Trainer:
             self.progress_bar.update(1)
         return logits, loss
 
-    def _maybe_log(
-        self, model: nn.Module, scheduler: lr_scheduler.LambdaLR, loss: torch.Tensor
-    ):
-        if self.log_interval > 0 and self.global_step % self.log_interval == 0:
-            avg_step_time = self.step_time_accumulator / self.log_interval
-            avg_data_time = self.data_time_accumulator / self.log_interval
-            grad_norm, weight_norm, update_ratio = get_norm_info(model, scheduler.get_last_lr()[0])  # type: ignore
-            _loss = loss.item()
-            kwargs = {
-                "loss": _loss,
-                "lr": scheduler.get_last_lr()[0],
-                "scaler_scale": self.scaler.get_scale() if self.scaler else None,
-                "grad_norm": grad_norm,
-                "weight_norm": weight_norm,
-                "update_ratio": update_ratio,
-                "tps": (
-                    self.tokens_accumulator
-                    / (self.step_time_accumulator + self.data_time_accumulator)
-                    if (self.step_time_accumulator + self.data_time_accumulator) > 0
-                    else 0.0
-                ),
-                "avg_step_time": avg_step_time,
-                "avg_data_time": avg_data_time,
-            }
-            if self.strategy.device_type == "cuda":
-                kwargs["gpu_mem_alloc"] = torch.cuda.memory_allocated() / (1024**3)
-                kwargs["gpu_mem_reserved"] = torch.cuda.memory_reserved() / (1024**3)
-
-            self._log(kwargs)
-            if self.progress_bar_metrics is not None and self.progress_bar is not None:
-                self.progress_bar_metrics["train_loss"] = _loss
-                self.progress_bar_metrics["lr"] = scheduler.get_last_lr()[0]  # type: ignore
-                self.progress_bar_metrics["tps"] = kwargs["tps"]
-                self.progress_bar.set_postfix(self.progress_bar_metrics)
-
-            self.step_time_accumulator = 0.0
-            self.data_time_accumulator = 0.0
-            self.tokens_accumulator = 0
-
-    def _log(self, metrics: dict, prefix: str = "train"):
-        if self.logger != "tensorboard":
+    def _maybe_log(self, model: nn.Module, scheduler, loss: torch.Tensor):
+        """Logs training metrics if we hit the logging interval."""
+        if self.logger_manager.log_frequency <= 0:
             return
-        for key, value in metrics.items():
-            if value is not None:
-                self.writer.add_scalar(f"{prefix}_{key}", value, self.global_step)
 
-    def _maybe_validate(self, model, val_dataloader):
-        if (
-            val_dataloader is not None
-            and self.val_interval > 0
-            and (self.global_step) % self.val_interval == 0
-        ):
-            val_loss = self._validate(model, val_dataloader)
-            if self.logger == "tensorboard":
-                self.writer.add_scalar("val/loss", val_loss, self.global_step)
+        if self.global_step % self.logger_manager.log_frequency != 0:
+            return
+
+        metrics = {}
+        if "loss" in self.logger_metrics:
+            metrics["loss"] = loss.item()
+
+        if "lr" in self.logger_metrics:
+            metrics["lr"] = scheduler.get_last_lr()[0]
+
+        if {"grad_norm", "weight_norm", "update_ratio"} & self.logger_metrics:
+            grad_norm, weight_norm, update_ratio = get_norm_info(
+                model, scheduler.get_last_lr()[0]
+            )
+            if grad_norm in self.logger_metrics:
+                metrics["grad_norm"] = grad_norm
+            if weight_norm in self.logger_metrics:
+                metrics["weight_norm"] = weight_norm
+            if update_ratio in self.logger_metrics:
+                metrics["update_ratio"] = update_ratio
+
+        if "tps" in self.logger_metrics:
+            avg_step_time = (
+                self.step_time_accumulator / self.logger_manager.log_frequency
+            )
+            avg_data_time = (
+                self.data_time_accumulator / self.logger_manager.log_frequency
+            )
+            tps = (
+                self.tokens_accumulator
+                / (self.step_time_accumulator + self.data_time_accumulator)
+                if (self.step_time_accumulator + self.data_time_accumulator) > 0
+                else 0.0
+            )
+            metrics["tps"] = tps
+            metrics["avg_step_time"] = avg_step_time
+            metrics["avg_data_time"] = avg_data_time
+
+        # Include CUDA memory metrics if on GPU
+        if self.strategy.device_type == "cuda":
+            if "gpu_mem_alloc" in self.logger_metrics:
+                metrics["gpu_mem_alloc"] = torch.cuda.memory_allocated() / (1024**3)
+            if "gpu_mem_reserved" in self.logger_metrics:
+                metrics["gpu_mem_reserved"] = torch.cuda.memory_reserved() / (1024**3)
+
+        # Log metrics to all configured loggers (console, tensorboard, etc.)
+        self.logger_manager.log_metrics(metrics, step=self.global_step)
+
+        # Update tqdm / progress bar metrics
+        if self.progress_bar_metrics is not None and self.progress_bar is not None:
+            for key, value in metrics.items():
+                self.progress_bar_metrics[key] = value
+            self.progress_bar.set_postfix(self.progress_bar_metrics)
+
+        # Reset accumulators
+        self.step_time_accumulator = 0.0
+        self.data_time_accumulator = 0.0
+        self.tokens_accumulator = 0
+
+    def _maybe_validate(self, model: nn.Module, val_dataloader):
+        """Run validation and log metrics if we hit the validation interval."""
+        if val_dataloader is None or self.val_interval <= 0:
+            return
+
+        if self.global_step % self.val_interval != 0:
+            return
+
+        # Compute validation loss
+        val_loss = self._validate(model, val_dataloader)
+
+        if "val_loss" in self.logger_metrics:
+            metrics = {"val_loss": val_loss}
+            self.logger_manager.log_metrics(metrics, step=self.global_step)
+
+            # Update tqdm / progress bar
             if self.progress_bar is not None and self.progress_bar_metrics is not None:
-                self.progress_bar_metrics["val_loss"] = val_loss
+                self.progress_bar_metrics.update(metrics)
                 self.progress_bar.set_postfix(self.progress_bar_metrics)
 
     def _maybe_checkpoint(self, model):
@@ -477,12 +480,7 @@ class Trainer:
 
         return ckpt if ckpt.exists() else None
 
-    def _log_config(self):
-        cfg = asdict(self.config)
-
-        print("\n" + "=" * 20 + " Config " + "=" * 20)
-        print(json.dumps(cfg, indent=2))
-        print("=" * 50 + "\n")
-
-        if self.logger == "tensorboard":
-            self.writer.add_text("config", json.dumps(cfg, indent=2), global_step=0)
+    def _cleanup(self):
+        self.logger_manager.finalize()
+        if self.progress_bar is not None:
+            self.progress_bar.close()

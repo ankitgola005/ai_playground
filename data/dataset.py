@@ -3,10 +3,10 @@ import torch
 import random
 import numpy as np
 
-from typing import TYPE_CHECKING
+from typing import Tuple, TYPE_CHECKING
 
 if TYPE_CHECKING:
-    from configs.config import Config
+    from ai_playground.configs.config import Config
 
 
 class TextDataset(Dataset):
@@ -29,8 +29,10 @@ def seed_worker(worker_id: int):
     random.seed(worker_seed)
 
 
-def build_dataloader(config: Config, encoded_data: torch.Tensor):
-    dataset = TextDataset(encoded_data, block_size=config.model.block_size)
+def build_dataloader(config: Config, encoded_data: torch.Tensor) -> DataLoader:
+    dataset = TextDataset(
+        encoded_data, block_size=config.model.model_kwargs["block_size"]
+    )
     generator = torch.Generator().manual_seed(config.experimental.seed)
     dataloader = DataLoader(
         dataset,
@@ -44,7 +46,9 @@ def build_dataloader(config: Config, encoded_data: torch.Tensor):
     return dataloader
 
 
-def train_val_split(encoded_data: torch.Tensor, split: float = 0.9):
+def train_val_split(
+    encoded_data: torch.Tensor, split: float = 0.9
+) -> Tuple[torch.Tensor, torch.Tensor]:
     split_idx = int(len(encoded_data) * split)
     train_data = encoded_data[:split_idx]
     val_data = encoded_data[split_idx:]

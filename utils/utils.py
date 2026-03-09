@@ -4,10 +4,14 @@ import torch.nn as nn
 import numpy as np
 import subprocess
 from tqdm import tqdm
+from typing import Type, TYPE_CHECKING
 
-from configs.config import Config
-from data import dataset
-from data.char_tokenizer import CharTokenizer
+from ai_playground.configs.config import Config, DistributedConfig
+from ai_playground.data import dataset
+from ai_playground.data.char_tokenizer import CharTokenizer
+
+if TYPE_CHECKING:
+    from ai_playground.distributed.base import Parallel
 
 
 def precision_to_dtype(precision: str) -> torch.dtype:
@@ -28,6 +32,43 @@ def set_seed(seed: int = 42):
 
     if torch.cuda.is_available():
         torch.cuda.manual_seed_all(seed)
+
+
+def build_model(config: Config) -> Type[nn.Module]:
+    model = None
+    if config.model.model_name == "minigpt":
+        from ai_playground.models.miniGPT import MiniGPT
+
+        model = MiniGPT
+    elif config.model.model_name == "bigram":
+        from ai_playground.models.bigram import BiGram
+
+        model = BiGram
+    elif config.model.model_name == "mnist":
+        from ai_playground.models.mnist import MNIST
+
+        model = MNIST
+    else:
+        raise NotImplementedError(
+            f"Model {config.model.model_name} is currently not supported."
+        )
+    return model
+
+
+def get_strategy(config: DistributedConfig) -> Parallel:
+    if config.distributed == "single":
+        from ai_playground.distributed.single import SingleDevice
+
+        strategy = SingleDevice(config)
+    elif config.distributed == "ddp":
+        from ai_playground.distributed.ddp import DDParallel
+
+        strategy = DDParallel(config)
+    else:
+        raise NotImplementedError(
+            f"Strategy {config.distributed} is currently not supported."
+        )
+    return strategy
 
 
 def build_data_pipeline(config: Config):

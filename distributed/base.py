@@ -3,60 +3,58 @@ from typing import Optional, TYPE_CHECKING
 
 import torch.nn as nn
 import torch
+import torch.distributed as dist
 
 if TYPE_CHECKING:
     from torch.optim import Optimizer
-    from torch.amp.grad_scaler import GradScaler
     from torch.utils.data import DataLoader
+    from torch.amp.grad_scaler import GradScaler
+    from ai_playground.configs.config import DistributedConfig
 
 
 class Parallel(ABC):
-    def __init__(self, device="cpu", num_devices: int = 1):
+    def __init__(self, config: DistributedConfig):
+        device = config.device
         if device == "cuda" and not torch.cuda.is_available():
             raise ValueError("CUDA is not available, but 'cuda' device was specified.")
 
         self._device: torch.device = torch.device(device)
         self.rank: int = 0
-        self.world_size: int = num_devices
-        self.backend: Optional[str] = "nccl" if self.device_type == "cuda" else "gloo"
+        self.world_size: int = config.world_size
+        self.backend: str = "nccl" if self.device_type == "cuda" else "gloo"
 
-    def init_distributed(self, backend: str, rank: int, world_size: int):
-        if not torch.distributed.is_initialized():
-            torch.distributed.init_process_group(
-                backend=backend, rank=rank, world_size=world_size
+    def init_distributed(self, rank: int, world_size: int):
+        if not dist.is_initialized():
+            dist.init_process_group(
+                backend=self.backend, rank=rank, world_size=world_size
             )
-
-        self.backend = backend
         self.rank = rank
         self.world_size = world_size
 
     @abstractmethod
-    def setup(self):
+    def setup_environment(self):
         pass
 
     @abstractmethod
     def wrap_model(self, model: nn.Module) -> nn.Module:
         pass
 
-    @abstractmethod
-    def setup_training(
-        self, model: nn.Module, optimizer: Optional[Optimizer], dataloader: DataLoader
-    ) -> tuple[nn.Module, Optional[Optimizer], DataLoader]:
-        pass
-
     def unwrap_model(self, model: nn.Module) -> nn.Module:
         return model
 
     @property
-    def device(self):
+    def device(self) -> torch.device:
         return self._device
 
+    def set_device(self, device: torch.device):
+        self._device = device
+
     @property
-    def device_type(self):
+    def device_type(self) -> str:
         return self._device.type
 
     def is_distributed(self):
-        return self.world_size > 1
+        return dist.is_initialized() and self.world_size > 1
 
     def backward(self, loss: torch.Tensor):
         loss.backward()
@@ -72,18 +70,36 @@ class Parallel(ABC):
             optimizer.step()
 
     def barrier(self):
-        if torch.distributed.is_initialized():
-            torch.distributed.barrier()
+        if dist.is_initialized():
+            dist.barrier()
 
-    def is_main_process(self):
+    def is_main_process(self) -> bool:
         return self.rank == 0
+
+    def rank_zero_only(self, fn):
+        def wrapper(*args, **kwargs):
+            if self.is_main_process():
+                return fn(*args, **kwargs)
+
+        return wrapper
+
+    def all_reduce(self, tensor: torch.Tensor, op=dist.ReduceOp.SUM) -> torch.Tensor:
+        if not self.is_distributed():
+            return tensor
+        dist.all_reduce(tensor, op=op)
+        return tensor
+
+    def reduce_mean(self, tensor: torch.Tensor) -> torch.Tensor:
+        self.all_reduce(tensor)
+        tensor.div_(self.world_size)
+        return tensor
 
     def launch(self, trainer_fn, *args, **kwargs):
         trainer_fn(*args, **kwargs)
 
-    def prepare_dataloader(self, dataloader):
+    def prepare_dataloader(self, dataloader: DataLoader) -> DataLoader:
         return dataloader
 
     def cleanup(self):
-        if torch.distributed.is_initialized():
-            torch.distributed.destroy_process_group()
+        if dist.is_initialized():
+            dist.destroy_process_group()
