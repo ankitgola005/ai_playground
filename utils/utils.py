@@ -35,7 +35,7 @@ def set_seed(seed: int = 42):
 
 
 def build_model(config: ConfigProtocol) -> Type[nn.Module]:
-    model = None
+    model: Type[nn.Module] | None = None
     if config.model.model_name == "minigpt":
         from ai_playground.models.miniGPT import MiniGPT
 
@@ -56,6 +56,7 @@ def build_model(config: ConfigProtocol) -> Type[nn.Module]:
 
 
 def get_strategy(config: DistributedConfigProtocol) -> Parallel:
+    strategy: Parallel | None = None
     if config.distributed == "single":
         from ai_playground.distributed.single import SingleDevice
 

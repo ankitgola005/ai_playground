@@ -1,5 +1,9 @@
 import yaml
 from pathlib import Path
+import ai_playground
+
+
+CONFIG_BASE_PATH = yaml_path = Path(ai_playground.__file__).parent / "configs"
 
 
 class ConfigNode:
@@ -24,12 +28,15 @@ class ConfigNode:
         return f"ConfigNode({self.__dict__})"
 
 
-def load_yaml_config(path: str | Path) -> ConfigNode:
+def load_yaml_config(filename: str) -> "ConfigNode":
     """
-    Load a YAML file and return a top-level ConfigNode.
-    Nested sections (model, trainer, distributed, etc.) are automatically converted.
+    Load a YAML file from ai_playground/configs by filename and return a top-level ConfigNode.
+    Args:
+        filename: Name of the config file relative to ai_playground/configs, e.g. "gpt_config.yaml"
+    Returns:
+        ConfigNode: top-level config object
     """
-    path = Path(path)
+    path = CONFIG_BASE_PATH / filename
     if not path.exists():
         raise FileNotFoundError(f"Config file not found: {path}")
 

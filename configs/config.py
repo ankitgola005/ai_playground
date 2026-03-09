@@ -1,5 +1,6 @@
 # Utility for type hints
 from typing import Protocol, Dict, List, Tuple
+from pathlib import Path
 
 
 class DataConfigProtocol(Protocol):
@@ -29,14 +30,14 @@ class TrainerConfigProtocol(Protocol):
     use_fp16: bool
     use_progress_bar: bool
     logger: List[str]
-    log_dir: str
+    log_dir: str | Path
     log_interval: int
     use_profiler: bool
     profiler_wait: int
     profiler_warmup: int
     profiler_active: int
     profiler_repeat: int
-    save_path: str
+    save_path: str | Path
     save_interval: int
 
 

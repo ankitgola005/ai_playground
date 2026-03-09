@@ -25,13 +25,13 @@ if TYPE_CHECKING:
     from torch.utils.data import DataLoader
     from torch.optim import Optimizer, lr_scheduler
     from tqdm import tqdm
-    from ai_playground.configs.config import Config
+    from ai_playground.configs.config import ConfigProtocol
 
 
 class Trainer:
     def __init__(
         self,
-        config: "Config",
+        config: "ConfigProtocol",
         strategy: Parallel,
         optimizer: Optional[Optimizer] = None,
     ):
@@ -44,7 +44,7 @@ class Trainer:
 
         self.strategy: Parallel = strategy
 
-        self.config: "Config" = config
+        self.config: "ConfigProtocol" = config
         self.set_seed(
             config.experimental.seed + (self.strategy.world_size * self.strategy.rank)
         )

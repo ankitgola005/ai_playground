@@ -4,11 +4,11 @@ import os
 from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
-    from ai_playground.configs.config import Config
+    from ai_playground.configs.config import ConfigProtocol
 
 
 class Logger(ABC):
-    def __init__(self, config: Config):
+    def __init__(self, config: ConfigProtocol):
         self.log_frequency = config.trainer.log_interval
         self.rank_zero_only = True
         self.log_dir = config.trainer.log_dir

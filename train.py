@@ -1,5 +1,4 @@
 import argparse
-from pathlib import Path
 
 from ai_playground.utils.utils import build_data_pipeline, build_model, get_strategy
 from ai_playground.utils.load_yaml_config import load_yaml_config
@@ -35,7 +34,7 @@ def main():
     # # Construct full path in configs/ folder relative to project root
     # project_root = Path(__file__).parent.resolve()
     # cfg_path = project_root / "configs" / args.cfg
-    config: ConfigProtocol = load_yaml_config("/home/kitkat/Desktop/ishtudy/ml_system/ai_playground/configs/gpt_config.yaml")  # type: ignore
+    config: ConfigProtocol = load_yaml_config("gpt_config.yaml")  # type: ignore
     strategy = get_strategy(config.distributed)
     strategy.launch(run_training, config)
 

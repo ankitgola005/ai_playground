@@ -1,10 +1,12 @@
-from ai_playground.configs.config import Config
+from ai_playground.configs.config import ConfigProtocol
 
 import torch.nn as nn
 
+from typing import List
+
 
 class MNIST(nn.Module):
-    def __init__(self, config: Config):
+    def __init__(self, config: ConfigProtocol):
         super().__init__()
 
         dims = (
@@ -12,7 +14,7 @@ class MNIST(nn.Module):
             + config.model.model_kwargs["hidden_dims"]
             + config.model.model_kwargs["output_dims"]
         )
-        layers = []
+        layers: List[nn.Module] = []
 
         for i in range(len(dims) - 1):
             layers.append(nn.Linear(dims[i], dims[i + 1]))

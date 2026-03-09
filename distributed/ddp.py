@@ -10,20 +10,20 @@ import torch.multiprocessing as mp
 from ai_playground.distributed.base import Parallel
 
 if TYPE_CHECKING:
-    from ai_playground.configs.config import DistributedConfig
+    from ai_playground.configs.config import DistributedConfigProtocol
 
 
 class DDParallel(Parallel):
-    def __init__(self, config: DistributedConfig):
+    def __init__(self, config: DistributedConfigProtocol):
         super().__init__(config)
-        self._sampler = None
+        self._sampler: DistributedSampler | None = None
 
     def setup_environment(self):
         pass
 
     def launch(self, trainer_fn, *args, **kwargs):
 
-        mp.spawn(
+        mp.spawn(  # type: ignore
             self._worker_entry,
             args=(self, trainer_fn, args, kwargs),
             nprocs=self.world_size,
@@ -59,7 +59,7 @@ class DDParallel(Parallel):
             optimizer = self.setup_optimizer(optimizer, model)
 
         if self.is_distributed():
-            sampler = DistributedSampler(
+            sampler: DistributedSampler = DistributedSampler(
                 dataloader.dataset,
                 num_replicas=self.world_size,
                 rank=self.rank,

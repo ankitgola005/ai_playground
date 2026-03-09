@@ -3,11 +3,11 @@ from typing import TYPE_CHECKING
 from ai_playground.utils.logger.base_logger import Logger
 
 if TYPE_CHECKING:
-    from ai_playground.configs.config import Config
+    from ai_playground.configs.config import ConfigProtocol
 
 
 class ConsoleLogger(Logger):
-    def __init__(self, config: Config) -> None:
+    def __init__(self, config: ConfigProtocol) -> None:
         super().__init__(config)
 
     def log_metrics(self, metrics: dict, step: int):

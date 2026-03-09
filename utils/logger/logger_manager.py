@@ -44,7 +44,7 @@ class LoggerManager:
 
         for logger in self.loggers:
             if hasattr(logger, "log_config"):
-                logger.log_config(cfg)
+                logger.log_config(cfg)  # type: ignore
 
     def log_metrics(self, metrics: dict, step: int):
         for logger in self.loggers:
@@ -67,7 +67,7 @@ class LoggerManager:
 
 def create_loggers(strategy: Parallel, config: ConfigProtocol):
     logger_configs = config.trainer.logger
-    loggers = []
+    loggers: List[Logger] = []
     for logger in logger_configs:
         if logger == "console":
             loggers.append(console_logger.ConsoleLogger(config))

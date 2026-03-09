@@ -7,11 +7,11 @@ from .transformer.transformer import TransformerBlock
 from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
-    from configs.gpt_config import GPTConfig
+    from ai_playground.configs.config import ConfigProtocol
 
 
 class MiniGPT(nn.Module):
-    def __init__(self, vocab_size: int, config: GPTConfig):
+    def __init__(self, vocab_size: int, config: ConfigProtocol):
         super().__init__()
 
         # Embeddings

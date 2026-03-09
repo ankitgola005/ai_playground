@@ -9,11 +9,11 @@ if TYPE_CHECKING:
     from torch.optim import Optimizer
     from torch.utils.data import DataLoader
     from torch.amp.grad_scaler import GradScaler
-    from ai_playground.configs.config import DistributedConfig
+    from ai_playground.configs.config import DistributedConfigProtocol
 
 
 class Parallel(ABC):
-    def __init__(self, config: DistributedConfig):
+    def __init__(self, config: DistributedConfigProtocol):
         device = config.device
         if device == "cuda" and not torch.cuda.is_available():
             raise ValueError("CUDA is not available, but 'cuda' device was specified.")

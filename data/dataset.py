@@ -6,7 +6,7 @@ import numpy as np
 from typing import Tuple, TYPE_CHECKING
 
 if TYPE_CHECKING:
-    from ai_playground.configs.config import Config
+    from ai_playground.configs.config import ConfigProtocol
 
 
 class TextDataset(Dataset):
@@ -29,7 +29,7 @@ def seed_worker(worker_id: int):
     random.seed(worker_seed)
 
 
-def build_dataloader(config: Config, encoded_data: torch.Tensor) -> DataLoader:
+def build_dataloader(config: ConfigProtocol, encoded_data: torch.Tensor) -> DataLoader:
     dataset = TextDataset(
         encoded_data, block_size=config.model.model_kwargs["block_size"]
     )
