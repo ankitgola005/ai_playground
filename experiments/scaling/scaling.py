@@ -1,4 +1,5 @@
 import copy
+import argparse
 import matplotlib.pyplot as plt
 
 from ai_playground.utils.load_yaml_config import load_yaml_config
@@ -15,18 +16,15 @@ def count_params(model):
     return sum(p.numel() for p in model.parameters())
 
 
-def run_single(config: ConfigProtocol):
-
+def run_single(config: "ConfigProtocol"):
     tokenizer, train_loader, val_loader = build_data_pipeline(config)
 
     model_cls = build_model(config)
     model = model_cls(tokenizer.vocab_size, config)
 
     trainer = Trainer(config, strategy=get_strategy(config.distributed))
-
     trainer.fit(model, train_loader, val_loader)
 
-    train_loss = trainer.last_train_loss
     val_loss = trainer.last_val_loss
     params = count_params(model)
 
@@ -36,26 +34,18 @@ def run_single(config: ConfigProtocol):
 # -------------------------
 # WIDTH SCALING
 # -------------------------
-
-
-def width_scaling(base_config: ConfigProtocol):
-
+def width_scaling(base_config: "ConfigProtocol"):
     embed_sizes = [4, 8, 16, 32, 64, 128, 256, 512, 1024]
-
-    params_list = []
-    loss_list = []
+    params_list, loss_list = [], []
 
     for embed in embed_sizes:
-
         print(f"\nRunning width experiment embed={embed}")
-
         config = copy.deepcopy(base_config)
         config.model.model_kwargs["n_embed"] = embed
         config.model.model_kwargs["hidden_dim"] = 4 * embed
         config.model.model_kwargs["n_layer"] = 4
 
         params, loss = run_single(config)
-
         params_list.append(params)
         loss_list.append(loss)
 
@@ -65,26 +55,18 @@ def width_scaling(base_config: ConfigProtocol):
 # -------------------------
 # DEPTH SCALING
 # -------------------------
-
-
-def depth_scaling(base_config: ConfigProtocol):
-
+def depth_scaling(base_config: "ConfigProtocol"):
     layers = [1, 2, 4, 6, 8, 16, 32]
-
-    params_list = []
-    loss_list = []
+    params_list, loss_list = [], []
 
     for layer in layers:
-
         print(f"\nRunning depth experiment layers={layer}")
-
         config = copy.deepcopy(base_config)
         config.model.model_kwargs["n_layer"] = layer
         config.model.model_kwargs["n_embed"] = 128
         config.model.model_kwargs["hidden_dim"] = 128 * 4
 
         params, loss = run_single(config)
-
         params_list.append(params)
         loss_list.append(loss)
 
@@ -92,55 +74,82 @@ def depth_scaling(base_config: ConfigProtocol):
 
 
 # -------------------------
+# COMBINED DEPTH × WIDTH
+# -------------------------
+def depth_width_scaling(base_config: "ConfigProtocol"):
+    embed_sizes = [32, 64, 128, 256]
+    layers = [2, 4, 8, 16]
+    results = []
+
+    for layer in layers:
+        for embed in embed_sizes:
+            print(f"\nRunning depth×width experiment layers={layer}, embed={embed}")
+            config = copy.deepcopy(base_config)
+            config.model.model_kwargs["n_layer"] = layer
+            config.model.model_kwargs["n_embed"] = embed
+            config.model.model_kwargs["hidden_dim"] = 4 * embed
+
+            params, loss = run_single(config)
+            results.append(
+                {"layers": layer, "embed": embed, "params": params, "val_loss": loss}
+            )
+
+    return results
+
+
+# -------------------------
 # PLOTTING
 # -------------------------
-
-
 def plot_results(x, loss, title, xlabel):
-
     plt.figure()
-
     plt.plot(x, loss, marker="o")
-
     plt.title(title)
     plt.xlabel(xlabel)
     plt.ylabel("Validation Loss")
-
     plt.grid(True)
-
     plt.show()
 
 
 # -------------------------
 # MAIN
 # -------------------------
-
-
 def main():
+    parser = argparse.ArgumentParser()
+    parser.add_argument(
+        "--law",
+        choices=["width", "depth", "depth_width"],
+        default="depth",
+        help="Which scaling law to run",
+    )
+    args = parser.parse_args()
 
     base_config = load_yaml_config(
         "/home/kitkat/Desktop/ishtudy/ml_system/ai_playground/configs/gpt_config.yaml"
     )
 
-    # width scaling
-    # embeds, params_w, loss_w = width_scaling(base_config)
+    if args.law == "width":
+        embeds, params_w, loss_w = width_scaling(base_config)  # type: ignore
+        plot_results(embeds, loss_w, "Width Scaling", "Embedding Size")
 
-    # plot_results(
-    #     embeds,
-    #     loss_w,
-    #     "Width Scaling",
-    #     "Embedding Size",
-    # )
+    elif args.law == "depth":
+        layers, params_d, loss_d = depth_scaling(base_config)  # type: ignore
+        plot_results(layers, loss_d, "Depth Scaling", "Number of Layers")
 
-    # depth scaling
-    layers, params_d, loss_d = depth_scaling(base_config)  # type: ignore
+    elif args.law == "depth_width":
+        results = depth_width_scaling(base_config)  # type: ignore
+        # optional: heatmap or scatter plot
+        layers_list = [r["layers"] for r in results]
+        embed_list = [r["embed"] for r in results]
+        loss_list = [r["val_loss"] for r in results]
 
-    plot_results(
-        layers,
-        loss_d,
-        "Depth Scaling",
-        "Number of Layers",
-    )
+        plt.figure()
+        plt.scatter(embed_list, layers_list, c=loss_list, cmap="viridis", s=200)
+        plt.colorbar(label="Validation Loss")
+        plt.xlabel("Embedding Size")
+        plt.ylabel("Number of Layers")
+        plt.title("Depth × Width Scaling")
+        plt.grid(True)
+        plt.show()
 
 
 if __name__ == "__main__":

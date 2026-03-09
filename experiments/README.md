@@ -6,9 +6,9 @@ Each experiment is self-contained in its own folder with its own README, scripts
 
 ---
 
-| Experiment | Description | Config | Link |
-|------------|-------------|--------|------|
-| 01 — Scaling Laws | Study how model width, depth, and other parameters affect training and validation loss. Key observation: wider and deeper models reduce validation loss but with diminishing returns and higher compute cost. | [`config.yaml`](../configs/base_config.yaml) | [Read more](01_scaling_laws/README.md) |
+|S.No |Experiment | Description |Key Observations| Config | Link |
+|------|----------|-------------|---|-----|------|
+| 01|Scaling | Study how model width (n_embed), and depth (hidden_dim), affect validation loss. | wider and deeper models reduce validation loss but with diminishing returns and higher compute cost. | [`gpt_config.yaml`](../configs/gpt_config.yaml) | [Read more](scaling/README.md) |
 
 ---
 
