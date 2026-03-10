@@ -82,8 +82,7 @@ In this experiment, we varied the model depth by changing the number of layers w
 
 ## E3 Width and Depth Parameter Sweep vs Validation Loss
 
-In this experiment, we varied **both model width (`n_embed`) and model depth (`n_layer`)** while keeping all other hyperparameters constant.  
-Validation loss was recorded at the end of each training run.
+In this experiment, we varied **both model width (`n_embed`) and model depth (`n_layer`)** while keeping all other hyperparameters constant. Validation loss was recorded at the end of each training run.
 
 <figure align="center">
   <img src="./.assets/widthXdepth_vs_val_loss.png" width="720">
