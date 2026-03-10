@@ -1,4 +1,3 @@
-
 # Experiments Overview
 
 This folder contains all experiment results and scripts.  
@@ -6,9 +5,9 @@ Each experiment is self-contained in its own folder with its own README, scripts
 
 ---
 
-|S.No |Experiment | Description |Key Observations| Link |
-|------|----------|-------------|---|-----|
-| 01|Scaling | Study how model width (n_embed), and depth (hidden_dim), affect validation loss. | wider and deeper models reduce validation loss but with diminishing returns and higher compute cost. | [Read more](scaling/README.md) |
+| S.No | Experiment | Description                                                                      | Key Observations                                                                                     | Link                           |
+| ---- | ---------- | -------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------- | ------------------------------ |
+| 01   | Scaling    | Study how model width (n_embed), and depth (hidden_dim), affect validation loss. | wider and deeper models reduce validation loss but with diminishing returns and higher compute cost. | [Read more](scaling/README.md) |
 
 ---
 
