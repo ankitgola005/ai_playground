@@ -33,10 +33,10 @@ python -u scaling.py --law [ "width" | "depth" | "depth_width" ]
 
 In this experiment, we varied the model width by sweeping `n_embed` while keeping other hyperparameters constant.
 
-<div align="center">
+<figure align="center">
   <img src="./.assets/width_vs_val_loss.png" width="720">
   <figcaption><em>Figure 1.1 — Validation loss vs embedding dimension (n_embed).</em></figcaption>
-</div>
+</figure>
 
 ### Observations
 
@@ -60,10 +60,10 @@ In this experiment, we varied the model width by sweeping `n_embed` while keepin
 
 In this experiment, we varied the model depth by changing the number of layers while keeping other hyperparameters constant.
 
-<div align="center">
+<figure align="center">
   <img src="./.assets/depth_vs_val_loss.png" width="720">
   <figcaption><em>Figure 1.2 — Validation loss vs number of layers (n_layer).</em></figcaption>
-</div>
+</figure>
 
 ### Observations
 
@@ -82,12 +82,13 @@ In this experiment, we varied the model depth by changing the number of layers w
 
 ## E3 Width and Depth Parameter Sweep vs Validation Loss
 
-In this experiment, we varied **both model width (`n_embed`) and model depth (`n_layer`)** while keeping all other hyperparameters constant. Validation loss was recorded at the end of each training run.
+In this experiment, we varied **both model width (`n_embed`) and model depth (`n_layer`)** while keeping all other hyperparameters constant.  
+Validation loss was recorded at the end of each training run.
 
-<div align="center">
+<figure align="center">
   <img src="./.assets/widthXdepth_vs_val_loss.png" width="720">
   <figcaption><em>Figure 1.3 — Validation loss vs number of layers x number of embeddings sweep.</em></figcaption>
-</div>
+</figure>
 
 ### Observations
 
