@@ -33,6 +33,11 @@ python -u scaling.py --law [ "width" | "depth" | "depth_width" ]
 
 In this experiment, we varied the model width by sweeping `n_embed` while keeping other hyperparameters constant.
 
+<figure align="center">
+  <img src="./.assets/width_vs_val_loss.png" width="720">
+  <figcaption><em>Figure 1.1 — Validation loss vs embedding dimension (n_embed).</em></figcaption>
+</figure>
+
 ### Observations
 
 - **Validation loss decreases with increasing width.**  
@@ -51,15 +56,14 @@ In this experiment, we varied the model width by sweeping `n_embed` while keepin
 - **Capacity saturation for the dataset.**  
   At sufficiently large widths, the model appears to have enough capacity to capture the dataset patterns, resulting in **smaller improvements in validation loss**.
 
-### Plot
-
-**Validation Loss vs Width**
-
-<img src="./.assets/width_vs_val_loss.png" width="720">
-
 ## E2. Depth vs Validation Loss
 
 In this experiment, we varied the model depth by changing the number of layers while keeping other hyperparameters constant.
+
+<figure align="center">
+  <img src="./.assets/depth_vs_val_loss.png" width="720">
+  <figcaption><em>Figure 1.2 — Validation loss vs number of layers (n_layer).</em></figcaption>
+</figure>
 
 ### Observations
 
@@ -76,16 +80,15 @@ In this experiment, we varied the model depth by changing the number of layers w
   - **Early layers provide noticeable improvement**, visible as a steeper initial drop in validation loss.
   - **Later layers yield smaller gains**, suggesting that additional depth contributes progressively less once sufficient representational capacity is reached.
 
-### Plot
-
-**Validation Loss vs Depth**
-
-<img src="./.assets/depth_vs_val_loss.png" width="720">
-
 ## E3 Width and Depth Parameter Sweep vs Validation Loss
 
 In this experiment, we varied **both model width (`n_embed`) and model depth (`n_layer`)** while keeping all other hyperparameters constant.  
 Validation loss was recorded at the end of each training run.
+
+<figure align="center">
+  <img src="./.assets/widthXdepth_vs_val_loss.png" width="720">
+  <figcaption><em>Figure 1.3 — Validation loss vs number of layers x number of embeddings sweep.</em></figcaption>
+</figure>
 
 ### Observations
 
@@ -102,9 +105,3 @@ Validation loss was recorded at the end of each training run.
   For large embedding sizes, the validation losses for deeper models are nearly indistinguishable. In particular, results for 8 and 16 layers are almost identical, indicating that additional depth does not meaningfully improve performance for model of this size.
 
 - When compute is constrained, it can be more efficient to **keep depth moderate and allocate more capacity to width**.
-
-### Plot
-
-**Validation Loss vs Width and Depth**
-
-<img src="./.assets/widthXdepth_vs_val_loss.png" width="720">

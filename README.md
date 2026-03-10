@@ -67,13 +67,13 @@ Experiments with transformers, training systems, and distributed training.
 
 ### Common Failure Signals
 
-| Symptom | Likely Cause |
-|------|------|
-| Grad norm explodes | LR too high |
-| Loss becomes NaN suddenly | softmax overflow |
-| Scaler constantly drops | FP16 overflow |
-| Training very slow | dataloader or GPU sync issue |
-| Grad norm = 0 | broken graph / detached tensor |
+| Symptom                   | Likely Cause                   |
+| ------------------------- | ------------------------------ |
+| Grad norm explodes        | LR too high                    |
+| Loss becomes NaN suddenly | softmax overflow               |
+| Scaler constantly drops   | FP16 overflow                  |
+| Training very slow        | dataloader or GPU sync issue   |
+| Grad norm = 0             | broken graph / detached tensor |
 
 ---
 
