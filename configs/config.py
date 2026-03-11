@@ -21,7 +21,7 @@ class TrainerConfigProtocol(Protocol):
     max_steps: int
     val_interval: int
     lr: float
-    min_lr_ratio: float
+    lr_config: dict  # e.g., {"schedule": str, "min_lr_ratio": float, ...}
     betas: Tuple[float, float]
     warmup_steps: int
     weight_decay: float

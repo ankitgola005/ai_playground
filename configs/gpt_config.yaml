@@ -23,7 +23,13 @@ trainer:
   max_steps: 1000
   val_interval: 100
   lr: 0.0003
-  min_lr_ratio: 0.1
+  lr_config:
+    scheduler: "cosine"
+    min_lr_ratio: 0.1
+    gamma: 0.0  # Exponential decay
+    power: 0.0  # Polynomial decay
+    cycle_steps: 0.0  # cosine restart
+    one_cycle_pct: 0.0  # one cycle
   betas: [0.9, 0.95]
   warmup_steps: 100
   weight_decay: 0.01
