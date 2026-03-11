@@ -96,6 +96,7 @@ class Trainer:
             )
         self.last_train_loss = 0.0
         self.last_val_loss = 0.0
+        self.val_loss_history = []
 
     def set_seed(self, seed: int = 42):
         import random
@@ -130,12 +131,7 @@ class Trainer:
                 betas=self.config.trainer.betas,
             )
         )
-        self.lr_scheduler = build_lr_scheduler(
-            self.optimizer,
-            warmup_steps=self.config.trainer.warmup_steps,
-            max_steps=self.max_steps,
-            min_lr_ratio=self.config.trainer.min_lr_ratio,
-        )
+        self.lr_scheduler = build_lr_scheduler(self.optimizer, self.config)
 
     def _pre_fit(
         self,
@@ -360,6 +356,7 @@ class Trainer:
 
         # Compute validation loss
         val_loss = self._validate(model, val_dataloader)
+        self.val_loss_history.append(val_loss)
 
         if "val_loss" in self.logger_metrics:
             self.last_val_loss = val_loss

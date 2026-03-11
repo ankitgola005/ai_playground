@@ -12,6 +12,7 @@ if TYPE_CHECKING:
     from ai_playground.configs.config import ConfigProtocol
     import torch.nn as nn
 
+
 def count_params(model: nn.Module):
     return sum(p.numel() for p in model.parameters())
 

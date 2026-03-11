@@ -35,6 +35,7 @@ class MultiHeadAttention(nn.Module):
         self.embed_dim = embed_dim
         self.head_dim = embed_dim // n_head
         self.n_head = n_head
+        self.last_attn = 0.0
 
         assert embed_dim % n_head == 0, "embed_dim must be divisible by n_head"
 
@@ -68,6 +69,7 @@ class MultiHeadAttention(nn.Module):
         )  # (B, n_head, T, head_dim) @ (B, n_head, head_dim, T) -> (B, n_head, T, T)
         atten = atten.masked_fill(~self.mask[:T, :T], float("-inf"))
         atten = torch.softmax(atten, dim=-1)  # (B, n_head, T, T)
+        self.last_attn = atten
         atten = self.attn_dropout(atten)  # (B, n_head, T, T)
         atten = torch.matmul(
             atten, v

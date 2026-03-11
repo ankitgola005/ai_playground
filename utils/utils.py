@@ -101,10 +101,10 @@ def build_lr_scheduler(optimizer: torch.optim.Optimizer, config: ConfigProtocol)
     lr_config = config.trainer.lr_config
     max_steps = config.trainer.max_steps
     warmup_steps = config.trainer.warmup_steps
-    
+
     scheduler = lr_config.get("scheduler", "cosine")
     min_lr_ratio = lr_config.get("min_lr_ratio", 0.1)
-    
+
     gamma = lr_config.get("exp_gamma", 0.95)
     power = lr_config.get("poly_power", 2.0)
     cycle_steps = lr_config.get("cycle_steps", max_steps)
@@ -114,7 +114,7 @@ def build_lr_scheduler(optimizer: torch.optim.Optimizer, config: ConfigProtocol)
         # Warmup
         if warmup_steps > 0 and step < warmup_steps:
             return step / max(1, warmup_steps)
-        
+
         # normalized progress after warmup
         progress = (step - warmup_steps) / max(1, max_steps - warmup_steps)
         progress = min(progress, 1.0)
@@ -142,10 +142,10 @@ def build_lr_scheduler(optimizer: torch.optim.Optimizer, config: ConfigProtocol)
             else:
                 # LR decay phase
                 cycle_progress = (progress - one_cycle_pct) / (1 - one_cycle_pct)
-                decay = (1 - cycle_progress)
+                decay = 1 - cycle_progress
         else:
             raise ValueError(f"Unknown scheduler: {scheduler}")
-        
+
         # Apply min LR floor
         if scheduler not in ["constant", "exponential_decay"]:
             decay = decay * (1.0 - min_lr_ratio) + min_lr_ratio
