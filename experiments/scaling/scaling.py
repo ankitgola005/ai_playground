@@ -10,9 +10,9 @@ from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
     from ai_playground.configs.config import ConfigProtocol
+    import torch.nn as nn
 
-
-def count_params(model):
+def count_params(model: nn.Module):
     return sum(p.numel() for p in model.parameters())
 
 
@@ -100,7 +100,7 @@ def depth_width_scaling(base_config: "ConfigProtocol"):
 # -------------------------
 # PLOTTING
 # -------------------------
-def plot_results(x, loss, title, xlabel):
+def plot_results(x, loss: float, title: str, xlabel: str):
     plt.figure()
     plt.plot(x, loss, marker="o")
     plt.title(title)
@@ -123,9 +123,7 @@ def main():
     )
     args = parser.parse_args()
 
-    base_config = load_yaml_config(
-        "/home/kitkat/Desktop/ishtudy/ml_system/ai_playground/configs/gpt_config.yaml"
-    )
+    base_config = load_yaml_config("gpt_config.yaml")
 
     if args.law == "width":
         embeds, params_w, loss_w = width_scaling(base_config)  # type: ignore
