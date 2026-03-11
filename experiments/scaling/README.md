@@ -35,7 +35,7 @@ In this experiment, we varied the model width by sweeping `n_embed` while keepin
 
 <figure align="center">
   <img src="./.assets/width_vs_val_loss.png" width="720">
-  <figcaption><em>Figure 1.1 — Validation loss vs embedding dimension (n_embed).</em></figcaption>
+  <figcaption><em>Figure 1.1 - Validation loss vs embedding dimension (n_embed).</em></figcaption>
 </figure>
 
 ### Observations
@@ -62,7 +62,7 @@ In this experiment, we varied the model depth by changing the number of layers w
 
 <figure align="center">
   <img src="./.assets/depth_vs_val_loss.png" width="720">
-  <figcaption><em>Figure 1.2 — Validation loss vs number of layers (n_layer).</em></figcaption>
+  <figcaption><em>Figure 1.2 - Validation loss vs number of layers (n_layer).</em></figcaption>
 </figure>
 
 ### Observations
@@ -86,7 +86,7 @@ In this experiment, we varied **both model width (`n_embed`) and model depth (`n
 
 <figure align="center">
   <img src="./.assets/widthXdepth_vs_val_loss.png" width="720">
-  <figcaption><em>Figure 1.3 — Validation loss vs number of layers x number of embeddings sweep.</em></figcaption>
+  <figcaption><em>Figure 1.3 - Validation loss vs number of layers x number of embeddings sweep.</em></figcaption>
 </figure>
 
 ### Observations
