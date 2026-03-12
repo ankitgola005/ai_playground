@@ -348,15 +348,18 @@ class Trainer:
 
     def _maybe_validate(self, model: nn.Module, val_dataloader):
         """Run validation and log metrics if we hit the validation interval."""
-        if val_dataloader is None or self.val_interval <= 0:
+        if val_dataloader is None or self.val_interval == 0:
             return
 
-        if self.global_step % self.val_interval != 0:
+        if (
+            self.global_step % self.val_interval != 0
+            and not self.global_step == self.max_steps
+        ):
             return
 
         # Compute validation loss
         val_loss = self._validate(model, val_dataloader)
-        self.val_loss_history.append(val_loss)
+        self.val_loss_history.append({"val_loss": val_loss, "step": self.global_step})
 
         if "val_loss" in self.logger_metrics:
             self.last_val_loss = val_loss

@@ -29,7 +29,7 @@ python -u scaling.py --law [ "width" | "depth" | "depth_width" ]
 
 ---
 
-## E1. Width vs Validation Loss
+## E1.1 Width vs Validation Loss
 
 In this experiment, we varied the model width by sweeping `n_embed` while keeping other hyperparameters constant.
 
@@ -56,7 +56,7 @@ In this experiment, we varied the model width by sweeping `n_embed` while keepin
 - **Capacity saturation for the dataset.**  
   At sufficiently large widths, the model appears to have enough capacity to capture the dataset patterns, resulting in **smaller improvements in validation loss**.
 
-## E2. Depth vs Validation Loss
+## E1.2. Depth vs Validation Loss
 
 In this experiment, we varied the model depth by changing the number of layers while keeping other hyperparameters constant.
 
@@ -80,7 +80,7 @@ In this experiment, we varied the model depth by changing the number of layers w
   - **Early layers provide noticeable improvement**, visible as a steeper initial drop in validation loss.
   - **Later layers yield smaller gains**, suggesting that additional depth contributes progressively less once sufficient representational capacity is reached.
 
-## E3 Width and Depth Parameter Sweep vs Validation Loss
+## E1.3 Width and Depth Parameter Sweep vs Validation Loss
 
 In this experiment, we varied **both model width (`n_embed`) and model depth (`n_layer`)** while keeping all other hyperparameters constant. Validation loss was recorded at the end of each training run.
 

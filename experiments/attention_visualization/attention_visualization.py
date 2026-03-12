@@ -40,62 +40,55 @@ def get_attention_maps(model: nn.Module, input_ids: Tensor) -> List[Tensor]:
     return attn_maps
 
 
-def plot_attention(attn_maps: List[Tensor], tokens: List[str], save_path: str) -> None:
+def plot_attention(
+    attn_maps: List[Tensor], tokens: List[str], save_prefix: str
+) -> None:
     """
-    Plot all attention heads for all layers in a single figure.
-    Rows = layers
-    Cols = heads
+    Plot attention heads for every layer.
+    Each layer gets its own figure with heads arranged in a grid.
     """
-    plt.rcParams["image.cmap"] = "magma"  # "magma", "viridis"
-    num_layers = len(attn_maps)
+    plt.rcParams["image.cmap"] = "magma"
+
     num_heads = attn_maps[0].shape[1]
     seq_len = len(tokens)
-
-    fig, axes = plt.subplots(
-        num_layers,
-        num_heads,
-        figsize=(4 * num_heads, 4 * num_layers),
-        squeeze=False,
-    )
+    grid_cols = 2
+    grid_rows = (num_heads + 1) // 2
 
     for layer_idx, attn in enumerate(attn_maps):
         attn = attn[0]  # remove batch
-
+        fig, axes = plt.subplots(
+            grid_rows,
+            grid_cols,
+            figsize=(8, 8),
+            squeeze=False,
+        )
+        axes_flat = axes.flatten()
         for head_idx in range(num_heads):
-            ax = axes[layer_idx][head_idx]
+            ax = axes_flat[head_idx]
+            ax.imshow(
+                attn[head_idx],
+                vmin=0,
+                vmax=1,
+                interpolation="nearest",
+            )
+            ax.set_title(f"Head {head_idx}", fontsize=10)
+            ax.set_xticks(range(seq_len))
+            ax.set_xticklabels(tokens, rotation=90, fontsize=7)
+            ax.set_yticks(range(seq_len))
+            ax.set_yticklabels(tokens, fontsize=7)
 
-            ax.imshow(attn[head_idx], interpolation="nearest")
+        for ax in axes_flat[num_heads:]:
+            ax.axis("off")
 
-            # titles
-            if layer_idx == 0:
-                ax.set_title(f"Head {head_idx}", fontsize=10)
-
-            if head_idx == 0:
-                ax.set_ylabel(f"Layer {layer_idx}", fontsize=10)
-
-            # remove internal ticks
-            ax.set_xticks([])
-            ax.set_yticks([])
-
-    # ---- add global token axes ----
-
-    # bottom tokens
-    for ax in axes[-1]:
-        ax.set_xticks(range(seq_len))
-        ax.set_xticklabels(tokens, rotation=90, fontsize=8)
-
-    # left tokens
-    for ax in axes[:, 0]:
-        ax.set_yticks(range(seq_len))
-        ax.set_yticklabels(tokens, fontsize=8)
-
-    plt.tight_layout()
-
-    plt.savefig(
-        save_path,
-        dpi=600,
-        bbox_inches="tight",
-    )
+        plt.suptitle(f"Layer {layer_idx}", fontsize=14)
+        plt.tight_layout()
+        save_path = f"{save_prefix}_layer_{layer_idx}.png"
+        plt.savefig(
+            save_path,
+            dpi=120,
+            bbox_inches="tight",
+        )
+        plt.close()
 
 
 def main() -> None:
@@ -103,43 +96,36 @@ def main() -> None:
 
     tokenizer, train_loader, val_loader = build_data_pipeline(config)
 
-    layer_sweep = [1, 2, 4, 6, 8, 12, 16, 24, 32, 40]
-    layer_sweep = [40]
+    # Depth sweep
+    layer_sweep = [4, 12, 24, 40]
+    layer_sweep.reverse()
 
     sample_text: str = "The quick brown fox jumps over the lazy dog"
+
     tokens: List[int] = tokenizer.encode(sample_text)
     decoded_tokens: List[str] = [tokenizer.decode([t]) for t in tokens]
 
     for n_layer in layer_sweep:
-
         print(f"\nRunning experiment with n_layer = {n_layer}")
-
-        # update config
         config.model.model_kwargs["n_layer"] = n_layer
-
         model_cls = build_model(config)
         model: nn.Module = model_cls(tokenizer.vocab_size, config)
-
         model = torch.compile(model)  # type: ignore
-
         trainer = Trainer(config, strategy=get_strategy(config.distributed))
         trainer.fit(model, train_loader, val_loader)
 
         model.eval()
-
         device = next(model.parameters()).device
         input_ids: Tensor = (
             torch.tensor(tokens, dtype=torch.long).unsqueeze(0).to(device)
         )
-
         base_model: nn.Module = model._orig_mod  # type: ignore
         attn_maps = get_attention_maps(base_model, input_ids)
-
-        save_path = f"attention_layers_{n_layer}.png"
-
-        plot_attention(attn_maps, decoded_tokens, save_path)
-
-        print(f"Saved attention map → {save_path}")
+        plot_attention(
+            attn_maps,
+            decoded_tokens,
+            f"attention_layers_{n_layer}",
+        )
 
 
 if __name__ == "__main__":

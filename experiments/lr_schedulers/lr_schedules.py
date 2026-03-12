@@ -1,5 +1,7 @@
 from __future__ import annotations
 import copy
+import json
+from pathlib import Path
 from typing import Any, Dict, List
 import matplotlib.pyplot as plt
 
@@ -14,15 +16,29 @@ if TYPE_CHECKING:
     from ai_playground.configs.config import ConfigProtocol
 
 
+RESULT_DIR = Path("experiment_results/lr_schedulers")
+RESULT_DIR.mkdir(parents=True, exist_ok=True)
+
+
 def run_lr_sweep(
     base_config: ConfigProtocol, schedules: Dict[str, Dict[str, Any]]
 ) -> List[Dict[str, Any]]:
     """
     Run multiple LR schedules and record validation loss curves.
+    Resume if results already exist.
     """
     results: List[Dict[str, Any]] = []
 
     for schedule_name, cfg in schedules.items():
+        save_file = RESULT_DIR / f"{schedule_name}.json"
+
+        # Resume if result already exists
+        if save_file.exists():
+            print(f"\nLoading cached result for {schedule_name}")
+            with open(save_file) as f:
+                results.append(json.load(f))
+            continue
+
         print(f"\nRunning LR schedule: {schedule_name}")
         config = copy.deepcopy(base_config)
         config.trainer.lr_config = cfg
@@ -34,15 +50,22 @@ def run_lr_sweep(
 
         trainer = Trainer(config, strategy=get_strategy(config.distributed))
         trainer.fit(model, train_loader, val_loader)  # type: ignore
+        history = trainer.val_loss_history
 
-        val_curve: List[float] = trainer.val_loss_history
-        results.append(
-            {
-                "schedule": schedule_name,
-                "val_loss_curve": val_curve,
-                "final_val_loss": val_curve[-1],
-            }
-        )
+        # supports both formats
+        val_curve = [x["val_loss"] for x in history]
+        steps = [x["step"] for x in history]
+        result = {
+            "schedule": schedule_name,
+            "val_loss_curve": val_curve,
+            "steps": steps,
+            "final_val_loss": val_curve[-1],
+        }
+        results.append(result)
+
+        # Save result
+        with open(save_file, "w") as f:
+            json.dump(result, f, indent=2)
 
     return results
 
@@ -54,26 +77,30 @@ def plot_lr_results(results: List[Dict[str, Any]]) -> None:
     plt.figure(figsize=(10, 6))
 
     for r in results:
-        steps = list(range(1, len(r["val_loss_curve"]) + 1))
+        steps = r["steps"]
         plt.plot(
             steps,
             r["val_loss_curve"],
             label=f"{r['schedule']} (final: {r['final_val_loss']:.4f})",
         )
 
-    plt.xlabel("Validation Step")
+    plt.xlabel("Training Steps")
     plt.ylabel("Validation Loss")
     plt.title("Validation Loss vs Step for Different LR Schedules")
     plt.legend()
     plt.grid(True, linestyle="--", alpha=0.6)
     plt.tight_layout()
-    plt.show()
+
+    plt.savefig(
+        "lr_schedulers_vs_val_loss.png",
+        dpi=600,
+        bbox_inches="tight",
+    )
 
 
 if __name__ == "__main__":
     base_config: ConfigProtocol = load_yaml_config("gpt_config.yaml")  # type: ignore
 
-    steps = base_config.trainer.max_steps
     schedules = {
         "constant": {"scheduler": "constant", "lr": base_config.trainer.lr},
         "one_cycle": {
@@ -89,12 +116,12 @@ if __name__ == "__main__":
         "cosine_restart": {
             "scheduler": "cosine_restart",
             "lr": base_config.trainer.lr,
-            "cycle_steps": 200,
+            "cycle_steps": 2000,
         },
         "exponential_decay": {
             "scheduler": "exponential_decay",
             "lr": base_config.trainer.lr,
-            "gamma": 0.95,
+            "gamma": 0.995,
         },
         "polynomial_decay": {
             "scheduler": "polynomial_decay",
