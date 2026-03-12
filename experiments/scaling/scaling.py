@@ -1,23 +1,40 @@
-import copy
 import argparse
+import copy
 import matplotlib.pyplot as plt
 
 from ai_playground.utils.load_yaml_config import load_yaml_config
 from ai_playground.utils.utils import build_data_pipeline, build_model, get_strategy
 from ai_playground.trainer.trainer import Trainer
 
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, List, Dict, Tuple
 
 if TYPE_CHECKING:
     from ai_playground.configs.config import ConfigProtocol
     import torch.nn as nn
 
 
-def count_params(model: nn.Module):
+def count_params(model: nn.Module) -> int:
+    """Counts params in a nn.Module
+    Args:
+        model (nn.Module)
+
+    Returns:
+        int: number of parameters in nn.Module
+    """
     return sum(p.numel() for p in model.parameters())
 
 
-def run_single(config: "ConfigProtocol"):
+def run_single(config: "ConfigProtocol") -> Tuple[int, float]:
+    """Single run
+
+    Args:
+        config (ConfigProtocol): Config to run
+
+    Returns:
+        Tuple containing:
+            - Number of params in model
+            - Final val_loss
+    """
     tokenizer, train_loader, val_loader = build_data_pipeline(config)
 
     model_cls = build_model(config)
@@ -26,16 +43,27 @@ def run_single(config: "ConfigProtocol"):
     trainer = Trainer(config, strategy=get_strategy(config.distributed))
     trainer.fit(model, train_loader, val_loader)
 
-    val_loss = trainer.last_val_loss
+    result = trainer.val_loss_history
+    val_loss = [r["val_loss"] for r in result]
     params = count_params(model)
 
-    return params, val_loss
+    return params, val_loss[-1]
 
 
-# -------------------------
-# WIDTH SCALING
-# -------------------------
-def width_scaling(base_config: "ConfigProtocol"):
+def width_scaling(
+    base_config: "ConfigProtocol",
+) -> Tuple[List[int], List[int], List[float]]:
+    """Run a width scaling experiment by sweeping embedding sizes.
+
+    Args:
+        base_config (ConfigProtocol): Base configuration.
+
+    Returns:
+        Tuple containing:
+            - List of embedding sizes
+            - List of parameter dicts for each run
+            - List of final validation losses for each run
+    """
     embed_sizes = [4, 8, 16, 32, 64, 128, 256, 512, 1024]
     params_list, loss_list = [], []
 
@@ -53,10 +81,20 @@ def width_scaling(base_config: "ConfigProtocol"):
     return embed_sizes, params_list, loss_list
 
 
-# -------------------------
-# DEPTH SCALING
-# -------------------------
-def depth_scaling(base_config: "ConfigProtocol"):
+def depth_scaling(
+    base_config: "ConfigProtocol",
+) -> Tuple[List[int], List[int], List[float]]:
+    """Run a depth scaling experiment by sweeping number of layers sizes.
+
+    Args:
+        base_config (ConfigProtocol): Base configuration.
+
+    Returns:
+        Tuple containing:
+            - List of embedding sizes
+            - List of parameter dicts for each run
+            - List of final validation losses for each run
+    """
     layers = [1, 2, 4, 6, 8, 16, 32]
     params_list, loss_list = [], []
 
@@ -74,10 +112,18 @@ def depth_scaling(base_config: "ConfigProtocol"):
     return layers, params_list, loss_list
 
 
-# -------------------------
-# COMBINED DEPTH × WIDTH
-# -------------------------
-def depth_width_scaling(base_config: "ConfigProtocol"):
+def depth_width_scaling(base_config: "ConfigProtocol") -> List[Dict]:
+    """Run a depth + width scaling experiment.
+
+    Args:
+        base_config (ConfigProtocol): Base configuration.
+
+    Returns:
+        Tuple containing:
+            - List of embedding sizes
+            - List of parameter dicts for each run
+            - List of final validation losses for each run
+    """
     embed_sizes = [32, 64, 128, 256]
     layers = [2, 4, 8, 16]
     results = []
@@ -98,10 +144,15 @@ def depth_width_scaling(base_config: "ConfigProtocol"):
     return results
 
 
-# -------------------------
-# PLOTTING
-# -------------------------
-def plot_results(x, loss: float, title: str, xlabel: str):
+def plot_results(x: List[int], loss: List[float], title: str, xlabel: str) -> None:
+    """Plot validation loss against a given parameter sweep.
+
+    Args:
+        x (List[int]): List of parameter values (e.g., embedding sizes).
+        loss (List[float]): Corresponding validation losses.
+        title (str): Plot title.
+        xlabel (str): Label for the x-axis.
+    """
     plt.figure()
     plt.plot(x, loss, marker="o")
     plt.title(title)
@@ -111,10 +162,8 @@ def plot_results(x, loss: float, title: str, xlabel: str):
     plt.show()
 
 
-# -------------------------
-# MAIN
-# -------------------------
 def main():
+    """Run scaling experiment and plot results."""
     parser = argparse.ArgumentParser()
     parser.add_argument(
         "--law",

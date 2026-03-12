@@ -1,7 +1,7 @@
 from pathlib import Path
 from contextlib import nullcontext
 import shutil
-from typing import Optional, TYPE_CHECKING
+from typing import Optional, TYPE_CHECKING, List
 import time
 
 import torch
@@ -66,7 +66,6 @@ class Trainer:
         self.save_interval: int = config.trainer.save_interval
         self.val_interval: int = config.trainer.val_interval
         self.log_interval = config.trainer.log_interval
-        self.experiment_name: str = config.experimental.experiment_name
         self.logger_manager: LoggerManager = create_loggers(self.strategy, config)
         self.logger_metrics: set = set(BASELINE_METRICS)
 
@@ -94,9 +93,9 @@ class Trainer:
                     repeat=config.trainer.profiler_repeat,
                 ),
             )
-        self.last_train_loss = 0.0
-        self.last_val_loss = 0.0
-        self.val_loss_history = []
+        
+        self.experiment_name: str = config.experimental.experiment_name
+        self.val_loss_history: List[dict] = []
 
     def set_seed(self, seed: int = 42):
         import random
@@ -292,7 +291,6 @@ class Trainer:
         metrics = {}
         if "train_loss" in self.logger_metrics:
             metrics["train_loss"] = loss.item()
-            self.last_train_loss = loss.item()
 
         if "lr" in self.logger_metrics:
             metrics["lr"] = scheduler.get_last_lr()[0]
@@ -362,7 +360,6 @@ class Trainer:
         self.val_loss_history.append({"val_loss": val_loss, "step": self.global_step})
 
         if "val_loss" in self.logger_metrics:
-            self.last_val_loss = val_loss
             metrics = {"val_loss": val_loss}
             self.logger_manager.log_metrics(metrics, step=self.global_step)
 
