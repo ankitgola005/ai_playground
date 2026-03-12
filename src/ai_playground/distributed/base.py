@@ -32,11 +32,11 @@ class Parallel(ABC):
         self.world_size = world_size
 
     @abstractmethod
-    def setup_environment(self):
+    def setup_environment(self, stage: str = "train"):
         pass
 
     @abstractmethod
-    def wrap_model(self, model: nn.Module) -> nn.Module:
+    def wrap_model(self, model: nn.Module, stage: str = "train") -> nn.Module:
         pass
 
     def unwrap_model(self, model: nn.Module) -> nn.Module:

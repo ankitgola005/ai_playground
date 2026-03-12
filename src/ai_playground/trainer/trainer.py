@@ -48,8 +48,9 @@ class Trainer:
         self.set_seed(
             config.experimental.seed + (self.strategy.world_size * self.strategy.rank)
         )
-        self.device_type = self.strategy.device_type
-        self.device = self.strategy.device
+        self.device_type: str = self.strategy.device_type
+        self.device: torch.device = self.strategy.device
+        self.compile: bool = self.config.experimental.compile
 
         self.precision: str = config.trainer.precision
         self.precision_dtype: torch.dtype = precision_to_dtype(self.precision)
@@ -132,6 +133,12 @@ class Trainer:
         )
         self.lr_scheduler = build_lr_scheduler(self.optimizer, self.config)
 
+    def _prepare_model(self, model: nn.Module, stage: str = "train"):
+        self.strategy.setup_environment(stage=stage)
+        model = self.strategy.wrap_model(model, stage=stage)
+
+        return torch.compile(model) if self.compile else model
+
     def _pre_fit(
         self,
         model: nn.Module,
@@ -139,8 +146,7 @@ class Trainer:
         val_dataloader: Optional[DataLoader],
     ):
         self.logger_manager.log_config(self.config)
-        self.strategy.setup_environment()
-        model = self.strategy.wrap_model(model)
+        model = self._prepare_model(model)  # type: ignore
 
         # Configure optimizer and scheduler
         if self.optimizer is None:
@@ -384,7 +390,7 @@ class Trainer:
         ):
             for xb, yb in val_dataloader:
                 xb, yb = xb.to(self.strategy.device), yb.to(self.strategy.device)
-                _, loss = model(xb, yb)
+                _, loss, _ = model(xb, yb)
                 total_loss += loss.detach() * xb.size(0)
                 count += xb.size(0)
             if was_training:
@@ -445,6 +451,12 @@ class Trainer:
 
         return [tokenizer.decode(seq.tolist()) for seq in output_tokens]
 
+    def _unwrap_model(self, model):
+        if hasattr(model, "_orig_mod"):
+            model = model._orig_mod
+        model = self.strategy.unwrap_model(model)
+        return model
+
     def save_checkpoint(self, model: nn.Module):
         if self.strategy.is_main_process():
             path = self.config.trainer.save_path
@@ -452,7 +464,7 @@ class Trainer:
                 path = Path(path) / self.experiment_name
             Path(path).mkdir(parents=True, exist_ok=True)
             checkpoint = {
-                "model": self.strategy.unwrap_model(model).state_dict(),
+                "model": self._unwrap_model(model).state_dict(),
                 "optimizer": self.optimizer.state_dict() if self.optimizer else None,
                 "scheduler": (
                     self.lr_scheduler.state_dict() if self.lr_scheduler else None
@@ -480,6 +492,7 @@ class Trainer:
 
         checkpoint = torch.load(path, map_location=self.strategy.device)
         model.load_state_dict(checkpoint["model"])
+        model = torch.compile(model) if self.compile else model  # type: ignore
 
         if not self.optimizer:
             self.configure_optimizer_and_scheduler(model)
