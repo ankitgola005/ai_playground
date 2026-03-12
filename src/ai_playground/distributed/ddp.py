@@ -18,6 +18,9 @@ class DDParallel(Parallel):
         super().__init__(config)
         self._sampler: DistributedSampler | None = None
 
+    def setup_environment(self, stage: str = "train"):
+        return super().setup_environment(stage)
+
     def launch(self, trainer_fn, *args, **kwargs):
 
         mp.spawn(  # type: ignore

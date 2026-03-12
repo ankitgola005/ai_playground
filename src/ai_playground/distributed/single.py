@@ -13,5 +13,8 @@ class SingleDevice(Parallel):
         if self.world_size != 1:
             raise ValueError("SingleDevice strategy requires world_size=1.")
 
+    def setup_environment(self, stage: str = "train"):
+        return super().setup_environment(stage)
+
     def wrap_model(self, model: nn.Module, stage: str = "train") -> nn.Module:
         return model.to(self.device)
