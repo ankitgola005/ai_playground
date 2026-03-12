@@ -1,5 +1,5 @@
 data:
-  data_path: "ai_playground/data/datasets/text_datasets/shakespeare.txt"
+  dataset: "shakespeare"
   split: 0.9
   num_workers: 0
 

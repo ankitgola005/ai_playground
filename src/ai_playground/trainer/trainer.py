@@ -426,7 +426,11 @@ class Trainer:
                 )
 
                 # Sliding window: keep only last max_cache_len tokens
-                if use_cache and past_key_values is not None and max_cache_len is not None:
+                if (
+                    use_cache
+                    and past_key_values is not None
+                    and max_cache_len is not None
+                ):
                     new_pkv = []
                     for k, v in past_key_values:
                         if k.size(2) > max_cache_len:

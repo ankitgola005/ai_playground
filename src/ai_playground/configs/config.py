@@ -4,7 +4,7 @@ from pathlib import Path
 
 
 class DataConfigProtocol(Protocol):
-    data_path: str
+    dataset: str
     split: float
     num_workers: int
 

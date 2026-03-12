@@ -3,16 +3,25 @@ import torch
 import torch.nn as nn
 import numpy as np
 import math
+from pathlib import Path
 import subprocess
 from tqdm import tqdm
 from typing import Type, TYPE_CHECKING
 
-from ai_playground.configs.config import ConfigProtocol, DistributedConfigProtocol
+from ai_playground.configs.config import (
+    ConfigProtocol,
+    DistributedConfigProtocol,
+    DataConfigProtocol,
+)
 from ai_playground.data import dataset
 from ai_playground.data.char_tokenizer import CharTokenizer
 
 if TYPE_CHECKING:
     from ai_playground.distributed.base import Parallel
+
+
+REPO_ROOT = Path(__file__).resolve().parent.parent.parent.parent
+DATA_DIR = REPO_ROOT / "datasets/"
 
 
 def precision_to_dtype(precision: str) -> torch.dtype:
@@ -73,8 +82,17 @@ def get_strategy(config: DistributedConfigProtocol) -> Parallel:
     return strategy
 
 
+def get_dataset_path(config: DataConfigProtocol) -> Path:
+    if config.dataset == "shakespeare":
+        return DATA_DIR / "text_datasets/shakespeare.txt"
+    else:
+        raise NotImplementedError(
+            f"Dataset '{config.dataset}' is currently not supported"
+        )
+
+
 def build_data_pipeline(config: ConfigProtocol):
-    with open(config.data.data_path, "r") as f:
+    with open(get_dataset_path(config.data), "r") as f:
         text = f.read()
 
     tokenizer = CharTokenizer(text)
