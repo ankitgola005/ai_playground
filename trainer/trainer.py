@@ -93,7 +93,7 @@ class Trainer:
                     repeat=config.trainer.profiler_repeat,
                 ),
             )
-        
+
         self.experiment_name: str = config.experimental.experiment_name
         self.val_loss_history: List[dict] = []
 

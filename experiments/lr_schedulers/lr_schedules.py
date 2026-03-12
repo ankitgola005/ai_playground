@@ -14,6 +14,7 @@ from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
     from ai_playground.configs.config import ConfigProtocol
+    import torch.nn as nn
 
 
 RESULT_DIR = Path("experiment_results/lr_schedulers")
@@ -23,9 +24,15 @@ RESULT_DIR.mkdir(parents=True, exist_ok=True)
 def run_lr_sweep(
     base_config: ConfigProtocol, schedules: Dict[str, Dict[str, Any]]
 ) -> List[Dict[str, Any]]:
-    """
-    Run multiple LR schedules and record validation loss curves.
+    """Run multiple LR schedules and record validation loss curves.
     Resume if results already exist.
+
+    Args:
+        base_config (ConfigProtocol): Base configuration
+        schedules (Dict[str, Dict[str, Any]]): Schedulers config
+
+    Returns:
+        List[Dict[str, Any]]: List of results
     """
     results: List[Dict[str, Any]] = []
 
@@ -45,8 +52,8 @@ def run_lr_sweep(
 
         tokenizer, train_loader, val_loader = build_data_pipeline(config)
         model_cls = build_model(config)
-        model = model_cls(tokenizer.vocab_size, config)
-        model = torch.compile(model)
+        model: nn.Module = model_cls(tokenizer.vocab_size, config)
+        model = torch.compile(model)  # type: ignore
 
         trainer = Trainer(config, strategy=get_strategy(config.distributed))
         trainer.fit(model, train_loader, val_loader)  # type: ignore
@@ -73,6 +80,9 @@ def run_lr_sweep(
 def plot_lr_results(results: List[Dict[str, Any]]) -> None:
     """
     Plot validation loss curves for multiple LR schedules.
+
+    Args:
+        [List[Dict]]: List of results
     """
     plt.figure(figsize=(10, 6))
 
@@ -99,6 +109,7 @@ def plot_lr_results(results: List[Dict[str, Any]]) -> None:
 
 
 if __name__ == "__main__":
+    """Run a scheduler config and plot validation loss trends."""
     base_config: ConfigProtocol = load_yaml_config("gpt_config.yaml")  # type: ignore
 
     schedules = {

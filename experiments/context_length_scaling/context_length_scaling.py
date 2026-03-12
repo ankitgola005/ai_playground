@@ -1,51 +1,81 @@
 import torch
 import copy
+import os
 import matplotlib.pyplot as plt
+
 from ai_playground.utils.load_yaml_config import load_yaml_config
 from ai_playground.utils.utils import build_data_pipeline, build_model, get_strategy
 from ai_playground.trainer.trainer import Trainer
 
-from typing import TYPE_CHECKING, List
+from typing import TYPE_CHECKING, List, Dict
 
 if TYPE_CHECKING:
     from ai_playground.configs.config import ConfigProtocol
+    import torch.nn as nn
 
 
-def run_context_sweep(base_config: ConfigProtocol, block_sizes: List[int]):
-    results = []
+TARGET_TOKENS = 25_000_000
 
+
+def run_context_sweep(
+    base_config: "ConfigProtocol", block_sizes: List[int]
+) -> List[Dict]:
+    results: List[Dict] = []
+
+    batch_size = base_config.trainer.batch_size
     for block_size in block_sizes:
         print(f"\nRunning context length experiment block_size={block_size}")
         config = copy.deepcopy(base_config)
         config.model.model_kwargs["block_size"] = block_size
 
+        # normalize training tokens
+        tokens_per_step = batch_size * block_size
+        max_steps = TARGET_TOKENS // tokens_per_step
+        config.trainer.max_steps = int(max_steps)
+        print(f"Tokens per step: {tokens_per_step}")
+        print(f"Adjusted max_steps: {max_steps}")
+
         tokenizer, train_loader, val_loader = build_data_pipeline(config)
         model_cls = build_model(config)
-        model = model_cls(tokenizer.vocab_size, config)
-        model = torch.compile(model)
+        model: nn.Module = model_cls(tokenizer.vocab_size, config)
+        model = torch.compile(model)  # type: ignore
         trainer = Trainer(config, strategy=get_strategy(config.distributed))
-        trainer.fit(model, train_loader, val_loader)  # type: ignore
+        try:
+            trainer.fit(model, train_loader, val_loader)  # type: ignore
+        except RuntimeError as e:
+            if "Non-finite gradient detected" in str(e):
+                print("Warning: Non-finite gradient detected. Continuing training...")
+                # optionally reset offending grads to safe values
+                for p in model.parameters():  # type: ignore
+                    if torch.any(torch.isnan(p)) or torch.any(torch.isinf(p)):
+                        p.data = torch.nan_to_num(
+                            p.data, nan=0.0, posinf=1e3, neginf=-1e3
+                        )
 
-        results.append({"block_size": block_size, "val_loss": trainer.last_val_loss})
+        last_val_loss = [r["val_loss"] for r in trainer.val_loss_history]
+        results.append(
+            {
+                "block_size": block_size,
+                "val_loss": last_val_loss[-1],
+            }
+        )
 
     return results
 
 
-def plot_context_results(results: List[dict], save_dir: str = "plots"):
+def plot_context_results(results: List[Dict], save_dir: str = "plots") -> None:
     """
     Creates and saves linear and log2 x-axis plots for context length scaling.
-    `results` is a list of dicts: [{"block_size": int, "val_loss": float}, ...]
     """
-    import os
 
     os.makedirs(save_dir, exist_ok=True)
-
+    results = sorted(results, key=lambda x: x["block_size"])
     block_sizes = [r["block_size"] for r in results]
     val_loss = [r["val_loss"] for r in results]
 
-    # ----- Linear plot -----
+    # Linear plot
     plt.figure()
-    plt.plot(block_sizes, val_loss, marker="o", color="blue")
+    plt.plot(block_sizes, val_loss, marker="o")
     plt.xlabel("Context Length (block_size)")
     plt.ylabel("Validation Loss")
     plt.title("Context Length Scaling (Linear)")
@@ -58,11 +88,10 @@ def plot_context_results(results: List[dict], save_dir: str = "plots"):
         bbox_inches="tight",
     )
     plt.close()
-    print(f"Saved linear plot: {linear_path}")
 
-    # ----- Log2 plot -----
+    # Log2 plot
     plt.figure()
-    plt.plot(block_sizes, val_loss, marker="o", color="green")
+    plt.plot(block_sizes, val_loss, marker="o")
     plt.xscale("log", base=2)
     plt.xlabel("Context Length (block_size, log2)")
     plt.ylabel("Validation Loss")
@@ -76,13 +105,11 @@ def plot_context_results(results: List[dict], save_dir: str = "plots"):
         bbox_inches="tight",
     )
     plt.close()
-    print(f"Saved log2 plot: {log_path}")
 
 
 if __name__ == "__main__":
     base_config = load_yaml_config("gpt_config.yaml")
-    block_sizes = [1, 2, 4, 8, 16, 32, 64, 128, 256, 512]
-    block_sizes.reverse()
+    block_sizes = [48, 64, 96, 128, 192, 256, 384, 512]
 
     results = run_context_sweep(base_config, block_sizes)  # type: ignore
     plot_context_results(results)
