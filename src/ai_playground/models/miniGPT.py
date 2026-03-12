@@ -43,9 +43,15 @@ class MiniGPT(nn.Module):
             config.model.model_kwargs["n_embed"], vocab_size, bias=False
         )
 
-    def forward(self, idx, targets=None):
+    def forward(self, idx, targets=None, past_key_values=None, use_cache=False):
         x = self.embeddings(idx)
-        x = self.transformer_blocks(x)
+        new_past_key_values = []
+        for i, block in enumerate(self.transformer_blocks):
+            pkv = past_key_values[i] if past_key_values is not None else None
+            x, present = block(x, past_key_values=pkv, use_cache=use_cache)
+            if use_cache:
+                new_past_key_values.append(present)
+
         x = self.layernorm(x)
         logits = self.head(x)
 
@@ -56,4 +62,4 @@ class MiniGPT(nn.Module):
             targets = targets.view(B * T)
             loss = F.cross_entropy(logits, targets)
 
-        return logits, loss
+        return logits, loss, new_past_key_values if use_cache else logits, loss

@@ -36,9 +36,12 @@ class TransformerBlock(nn.Module):
         self.linear1 = nn.LayerNorm(embed_dim)
         self.linear2 = nn.LayerNorm(embed_dim)
 
-    def forward(self, x):
+    def forward(self, x, past_key_values=None, use_cache=False):
         # Attention + residual
-        x = x + self.attention(self.linear1(x))
+        attn_out, present = x + self.attention(
+            self.linear1(x), past_key_values, use_cache
+        )
         # FFN + residual
+        x = x + attn_out
         x = x + self.ffn(self.linear2(x))
-        return x
+        return x, present

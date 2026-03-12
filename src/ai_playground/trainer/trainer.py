@@ -395,7 +395,13 @@ class Trainer:
         return self.max_steps > 0 and self.global_step >= self.max_steps
 
     def predict(
-        self, model: nn.Module, tokenizer, prompts: list[str], max_tokens: int = 500
+        self,
+        model: nn.Module,
+        tokenizer,
+        prompts: list[str],
+        max_tokens: int = 500,
+        use_cache: bool = True,
+        max_cache_len: int = 2048,
     ):
         model.eval()
         with torch.inference_mode():
@@ -409,9 +415,27 @@ class Trainer:
                     tokens, device=self.strategy.device
                 )
 
+            # Initialize KV cache
+            past_key_values = None
             output_tokens = batch_context.clone()
             for _ in range(max_tokens):
-                logits, _ = model(output_tokens)
+                logits, _, past_key_values = model(
+                    output_tokens[:, -1:],
+                    past_key_values=past_key_values,
+                    use_cache=use_cache,
+                )
+
+                # Sliding window: keep only last max_cache_len tokens
+                if use_cache and past_key_values is not None and max_cache_len is not None:
+                    new_pkv = []
+                    for k, v in past_key_values:
+                        if k.size(2) > max_cache_len:
+                            k = k[:, :, -max_cache_len:, :]
+                            v = v[:, :, -max_cache_len:, :]
+                        new_pkv.append((k, v))
+                    past_key_values = new_pkv
+
+                # Append next token
                 next_token = torch.argmax(logits[:, -1, :], dim=-1, keepdim=True)
                 output_tokens = torch.cat([output_tokens, next_token], dim=1)
 

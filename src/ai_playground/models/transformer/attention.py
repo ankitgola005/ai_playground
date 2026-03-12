@@ -52,7 +52,7 @@ class MultiHeadAttention(nn.Module):
         self.attn_dropout = nn.Dropout(attn_droupout)
         self.resid_dropout = nn.Dropout(residual_droupout)
 
-    def forward(self, x):
+    def forward(self, x, past_key_value=None, use_cache=False):
         B, T, C = x.shape
         qkv = self.qkv(x)  # (B, T, 3*embed_dim)
         q, k, v = qkv.chunk(3, dim=-1)  # (B, T, embed_dim) * 3
@@ -62,6 +62,14 @@ class MultiHeadAttention(nn.Module):
         q = q.view(B, T, self.n_head, self.head_dim).transpose(1, 2)
         k = k.view(B, T, self.n_head, self.head_dim).transpose(1, 2)
         v = v.view(B, T, self.n_head, self.head_dim).transpose(1, 2)
+
+        # Concatenate KV cache if available
+        if past_key_value is not None:
+            k = torch.cat([past_key_value[0], k], dim=2)
+            v = torch.cat([past_key_value[1], v], dim=2)
+
+        # Save present KV if caching
+        present = (k, v) if use_cache else None
 
         # Compute attention scores
         atten = (
@@ -80,4 +88,6 @@ class MultiHeadAttention(nn.Module):
             atten.transpose(1, 2).contiguous().view(B, T, C)
         )  # (B, T, n_head*head_dim) -> (B, T, embed_dim)
         out = self.out_proj(atten)  # (B, T, embed_dim) -> (B, T, embed_dim)
-        return self.resid_dropout(out)
+        out = self.resid_dropout(out)
+
+        return out, present if use_cache else out
