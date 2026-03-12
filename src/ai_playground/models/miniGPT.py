@@ -44,7 +44,10 @@ class MiniGPT(nn.Module):
         )
 
     def forward(self, idx, targets=None, past_key_values=None, use_cache=False):
+        # Embeddings
         x = self.embeddings(idx)
+
+        # Transformer blocks
         new_past_key_values = []
         for i, block in enumerate(self.transformer_blocks):
             pkv = past_key_values[i] if past_key_values is not None else None
@@ -52,9 +55,11 @@ class MiniGPT(nn.Module):
             if use_cache:
                 new_past_key_values.append(present)
 
+        # Final LN + head
         x = self.layernorm(x)
         logits = self.head(x)
 
+        # Loss
         loss = None
         if targets is not None:
             B, T, C = logits.shape
@@ -62,4 +67,4 @@ class MiniGPT(nn.Module):
             targets = targets.view(B * T)
             loss = F.cross_entropy(logits, targets)
 
-        return logits, loss, new_past_key_values if use_cache else logits, loss
+        return logits, loss, new_past_key_values

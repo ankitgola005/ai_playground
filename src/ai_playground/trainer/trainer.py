@@ -255,7 +255,7 @@ class Trainer:
             dtype=self.precision_dtype,
             enabled=self.use_amp,
         ):
-            logits, loss = model(xb, yb)
+            logits, loss, _ = model(xb, yb)
         if not torch.isfinite(loss):
             raise RuntimeError(
                 f"Non-finite loss detected at step {self.global_step}: {loss}"

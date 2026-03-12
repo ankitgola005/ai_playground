@@ -63,13 +63,13 @@ class MultiHeadAttention(nn.Module):
         k = k.view(B, T, self.n_head, self.head_dim).transpose(1, 2)
         v = v.view(B, T, self.n_head, self.head_dim).transpose(1, 2)
 
-        # Concatenate KV cache if available
-        if past_key_value is not None:
-            k = torch.cat([past_key_value[0], k], dim=2)
-            v = torch.cat([past_key_value[1], v], dim=2)
-
-        # Save present KV if caching
-        present = (k, v) if use_cache else None
+        # if using KV caching
+        present = None
+        if use_cache:
+            if past_key_value is not None:
+                k = torch.cat([past_key_value[0], k], dim=2)
+                v = torch.cat([past_key_value[1], v], dim=2)
+            present = (k, v)
 
         # Compute attention scores
         atten = (
@@ -90,4 +90,4 @@ class MultiHeadAttention(nn.Module):
         out = self.out_proj(atten)  # (B, T, embed_dim) -> (B, T, embed_dim)
         out = self.resid_dropout(out)
 
-        return out, present if use_cache else out
+        return out, present
