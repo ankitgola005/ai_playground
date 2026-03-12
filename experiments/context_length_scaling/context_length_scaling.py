@@ -44,8 +44,7 @@ def run_context_sweep(
             trainer.fit(model, train_loader, val_loader)  # type: ignore
         except RuntimeError as e:
             if "Non-finite gradient detected" in str(e):
-                print("Warning: Non-finite gradient detected. Continuing training...")
-                # optionally reset offending grads to safe values
+                print("Warning: Non-finite gradient detected.")
                 for p in model.parameters():  # type: ignore
                     if torch.any(torch.isnan(p)) or torch.any(torch.isinf(p)):
                         p.data = torch.nan_to_num(
@@ -65,7 +64,7 @@ def run_context_sweep(
 
 def plot_context_results(results: List[Dict], save_dir: str = "plots") -> None:
     """
-    Creates and saves linear and log2 x-axis plots for context length scaling.
+    Creates and saves plots for context length scaling.
     """
 
     os.makedirs(save_dir, exist_ok=True)
@@ -73,7 +72,6 @@ def plot_context_results(results: List[Dict], save_dir: str = "plots") -> None:
     block_sizes = [r["block_size"] for r in results]
     val_loss = [r["val_loss"] for r in results]
 
-    # Linear plot
     plt.figure()
     plt.plot(block_sizes, val_loss, marker="o")
     plt.xlabel("Context Length (block_size)")
@@ -89,27 +87,10 @@ def plot_context_results(results: List[Dict], save_dir: str = "plots") -> None:
     )
     plt.close()
 
-    # Log2 plot
-    plt.figure()
-    plt.plot(block_sizes, val_loss, marker="o")
-    plt.xscale("log", base=2)
-    plt.xlabel("Context Length (block_size, log2)")
-    plt.ylabel("Validation Loss")
-    plt.title("Context Length Scaling (Log2 x-axis)")
-    plt.grid(True, which="both", linestyle="--", alpha=0.5)
-    plt.tight_layout()
-    log_path = os.path.join(save_dir, "context_log2.png")
-    plt.savefig(
-        log_path,
-        dpi=600,
-        bbox_inches="tight",
-    )
-    plt.close()
-
 
 if __name__ == "__main__":
     base_config = load_yaml_config("gpt_config.yaml")
-    block_sizes = [48, 64, 96, 128, 192, 256, 384, 512]
+    block_sizes = [32, 48, 64, 96, 128, 192, 256, 384, 512]
 
     results = run_context_sweep(base_config, block_sizes)  # type: ignore
     plot_context_results(results)
