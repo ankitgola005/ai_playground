@@ -26,10 +26,10 @@ def get_attention_maps(model: nn.Module, input_ids: Tensor) -> List[Tensor]:
 
     def hook(module: nn.Module, _input: tuple[Tensor, ...], _output: Tensor) -> None:
         if hasattr(module, "last_attn"):
-            attn_maps.append(module.last_attn.detach().cpu())  # type: ignore[attr-defined]
+            attn_maps.append(module.last_attn.detach().cpu())  # type: ignore
 
-    for block in model.transformer_blocks:  # type: ignore[attr-defined]
-        hooks.append(block.attention.register_forward_hook(hook))  # type: ignore[attr-defined]
+    for block in model.transformer_blocks:  # type: ignore
+        hooks.append(block.attention.register_forward_hook(hook))  # type: ignore
 
     with torch.no_grad():
         model(input_ids)
