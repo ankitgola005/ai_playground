@@ -8,7 +8,7 @@ import torch
 import torch.nn as nn
 from torch.profiler import profile, ProfilerActivity
 
-from ai_playground.distributed.base import Parallel
+from ai_playground.runner.generator import Generator
 from ai_playground.utils.logger.logger_manager import (
     LoggerManager,
     create_loggers,
@@ -26,6 +26,7 @@ if TYPE_CHECKING:
     from torch.optim import Optimizer, lr_scheduler
     from tqdm import tqdm
     from ai_playground.configs.config import ConfigProtocol
+    from ai_playground.distributed.base import Parallel
 
 
 class Trainer:
@@ -146,11 +147,6 @@ class Trainer:
         val_dataloader: Optional[DataLoader],
     ):
         self.logger_manager.log_config(self.config)
-        model = self._prepare_model(model)  # type: ignore
-
-        # Configure optimizer and scheduler
-        if self.optimizer is None:
-            self.configure_optimizer_and_scheduler(model)
 
         # Try to load checkpoint
         step = 0
@@ -161,6 +157,12 @@ class Trainer:
             print(f"Resuming training from step: {step}")
         else:
             print("No checkpoint found, starting training from scratch")
+
+        model = self._prepare_model(model)  # type: ignore
+
+        # Configure optimizer and scheduler
+        if self.optimizer is None:
+            self.configure_optimizer_and_scheduler(model)
 
         # Setup progress bar
         if self.use_progress_bar and self.progress_bar is None:
@@ -407,49 +409,21 @@ class Trainer:
         prompts: list[str],
         max_tokens: int = 500,
         use_cache: bool = True,
-        max_cache_len: int = 2048,
+        max_cache_len: int = 256,
     ):
+        model = self._prepare_model(model, stage="infer")  # type: ignore
         model.eval()
-        with torch.inference_mode():
-            token_list = [tokenizer.encode(c) for c in prompts]
-            max_len = max(len(t) for t in token_list)
-            batch_context = torch.zeros(
-                len(prompts), max_len, dtype=torch.long, device=self.strategy.device
-            )
-            for i, tokens in enumerate(token_list):
-                batch_context[i, : len(tokens)] = torch.tensor(
-                    tokens, device=self.strategy.device
-                )
 
-            # Initialize KV cache
-            past_key_values = None
-            output_tokens = batch_context.clone()
-            for _ in range(max_tokens):
-                logits, _, past_key_values = model(
-                    output_tokens[:, -1:],
-                    past_key_values=past_key_values,
-                    use_cache=use_cache,
-                )
+        generator = Generator(
+            model=model, tokenizer=tokenizer, device=self.strategy.device
+        )
 
-                # Sliding window: keep only last max_cache_len tokens
-                if (
-                    use_cache
-                    and past_key_values is not None
-                    and max_cache_len is not None
-                ):
-                    new_pkv = []
-                    for k, v in past_key_values:
-                        if k.size(2) > max_cache_len:
-                            k = k[:, :, -max_cache_len:, :]
-                            v = v[:, :, -max_cache_len:, :]
-                        new_pkv.append((k, v))
-                    past_key_values = new_pkv
-
-                # Append next token
-                next_token = torch.argmax(logits[:, -1, :], dim=-1, keepdim=True)
-                output_tokens = torch.cat([output_tokens, next_token], dim=1)
-
-        return [tokenizer.decode(seq.tolist()) for seq in output_tokens]
+        return generator.generate(
+            prompts=prompts,
+            max_tokens=max_tokens,
+            use_cache=use_cache,
+            max_cache_len=max_cache_len,
+        )
 
     def _unwrap_model(self, model):
         if hasattr(model, "_orig_mod"):

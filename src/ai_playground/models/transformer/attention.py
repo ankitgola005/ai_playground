@@ -65,17 +65,27 @@ class MultiHeadAttention(nn.Module):
 
         # if using KV caching
         present = None
+
         if use_cache:
-            if past_key_value is not None:
-                k = torch.cat([past_key_value[0], k], dim=2)
-                v = torch.cat([past_key_value[1], v], dim=2)
-            present = (k, v)
+            cache = past_key_value
+
+            if cache is not None:
+                t = cache.idx
+                cache.k[:, :, t : t + T] = k
+                cache.v[:, :, t : t + T] = v
+                cache.idx += T
+
+                k = cache.k[:, :, : cache.idx]
+                v = cache.v[:, :, : cache.idx]
+
+                present = cache
 
         # Compute attention scores
         atten = (
             torch.matmul(q, k.transpose(-2, -1)) * self.scale
         )  # (B, n_head, T, head_dim) @ (B, n_head, head_dim, T) -> (B, n_head, T, T)
-        atten = atten.masked_fill(~self.mask[:T, :T], float("-inf"))
+        key_len = k.size(2)
+        atten = atten.masked_fill(~self.mask[:T, :key_len], float("-inf"))
         atten = torch.softmax(atten, dim=-1)  # (B, n_head, T, T)
         self.last_attn = atten
         atten = self.attn_dropout(atten)  # (B, n_head, T, T)

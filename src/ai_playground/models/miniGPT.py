@@ -1,8 +1,9 @@
 import torch.nn as nn
 from torch.nn import functional as F
 
-from .transformer.embeddings import EmbeddingWrapper
-from .transformer.transformer import TransformerBlock
+from ai_playground.models.transformer.embeddings import EmbeddingWrapper
+from ai_playground.models.transformer.transformer import TransformerBlock
+from ai_playground.models.transformer.kv_cache import KVCache
 
 from typing import TYPE_CHECKING
 
@@ -14,33 +15,35 @@ class MiniGPT(nn.Module):
     def __init__(self, vocab_size: int, config: ConfigProtocol):
         super().__init__()
 
+        self.config = config
+
         # Embeddings
         self.embeddings = EmbeddingWrapper(
             vocab_size,
-            config.model.model_kwargs["block_size"],
-            config.model.model_kwargs["n_embed"],
+            self.config.model.model_kwargs["block_size"],
+            self.config.model.model_kwargs["n_embed"],
         )
 
         # Transformer blocks
         self.transformer_blocks = nn.Sequential(
             *[
                 TransformerBlock(
-                    config.model.model_kwargs["n_embed"],
-                    config.model.model_kwargs["n_head"],
-                    config.model.model_kwargs["block_size"],
-                    config.model.model_kwargs["hidden_dim"],
-                    config.model.model_kwargs["attn_dropout"],
-                    config.model.model_kwargs["residual_dropout"],
-                    config.model.model_kwargs["ffn_dropout"],
+                    self.config.model.model_kwargs["n_embed"],
+                    self.config.model.model_kwargs["n_head"],
+                    self.config.model.model_kwargs["block_size"],
+                    self.config.model.model_kwargs["hidden_dim"],
+                    self.config.model.model_kwargs["attn_dropout"],
+                    self.config.model.model_kwargs["residual_dropout"],
+                    self.config.model.model_kwargs["ffn_dropout"],
                 )
-                for _ in range(config.model.model_kwargs["n_layer"])
+                for _ in range(self.config.model.model_kwargs["n_layer"])
             ]
         )
 
         # Final Layernorm + Linear head
-        self.layernorm = nn.LayerNorm(config.model.model_kwargs["n_embed"])
+        self.layernorm = nn.LayerNorm(self.config.model.model_kwargs["n_embed"])
         self.head = nn.Linear(
-            config.model.model_kwargs["n_embed"], vocab_size, bias=False
+            self.config.model.model_kwargs["n_embed"], vocab_size, bias=False
         )
 
     def forward(self, idx, targets=None, past_key_values=None, use_cache=False):
@@ -67,4 +70,21 @@ class MiniGPT(nn.Module):
             targets = targets.view(B * T)
             loss = F.cross_entropy(logits, targets)
 
-        return logits, loss, new_past_key_values
+        return logits, loss, new_past_key_values if use_cache else None
+
+    def init_kv_cache(self, B: int, max_len: int = 1024, device: str = "cuda"):
+        caches = []
+
+        for block in self.transformer_blocks:
+            caches.append(
+                KVCache(
+                    B,
+                    self.config.model.model_kwargs["n_head"],
+                    max_len,
+                    self.config.model.model_kwargs["n_embed"]
+                    // self.config.model.model_kwargs["n_head"],
+                    device,
+                    next(self.parameters()).dtype,
+                )
+            )
+        return caches
