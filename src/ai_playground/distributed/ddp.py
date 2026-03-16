@@ -18,8 +18,8 @@ class DDParallel(Parallel):
         super().__init__(config)
         self._sampler: DistributedSampler | None = None
 
-    def setup_environment(self):
-        pass
+    def setup_environment(self, stage: str = "train"):
+        return super().setup_environment(stage)
 
     def launch(self, trainer_fn, *args, **kwargs):
 
@@ -80,9 +80,9 @@ class DDParallel(Parallel):
         if self._sampler is not None:
             self._sampler.set_epoch(epoch)
 
-    def wrap_model(self, model: nn.Module):
+    def wrap_model(self, model: nn.Module, stage: str = "train"):
         model = model.to(self.device)
-        if self.is_distributed():
+        if stage == "train" and self.is_distributed():
             device_ids = [self.rank] if self.device.type == "cuda" else None
             model = DDP(model, device_ids=device_ids)
 

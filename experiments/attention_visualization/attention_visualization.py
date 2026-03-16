@@ -6,7 +6,7 @@ import matplotlib.pyplot as plt
 
 from ai_playground.utils.load_yaml_config import load_yaml_config
 from ai_playground.utils.utils import build_data_pipeline, build_model, get_strategy
-from ai_playground.trainer.trainer import Trainer
+from ai_playground.runner.trainer import Trainer
 from ai_playground.configs.config import ConfigProtocol
 
 torch.backends.cuda.matmul.allow_tf32 = True

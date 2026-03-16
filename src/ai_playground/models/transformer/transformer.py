@@ -38,9 +38,7 @@ class TransformerBlock(nn.Module):
 
     def forward(self, x, past_key_values=None, use_cache=False):
         # Attention + residual
-        attn_out, present = x + self.attention(
-            self.linear1(x), past_key_values, use_cache
-        )
+        attn_out, present = self.attention(self.linear1(x), past_key_values, use_cache)
         # FFN + residual
         x = x + attn_out
         x = x + self.ffn(self.linear2(x))

@@ -8,7 +8,7 @@ import torch
 import torch.nn as nn
 from torch.profiler import profile, ProfilerActivity
 
-from ai_playground.distributed.base import Parallel
+from ai_playground.runner.generator import Generator
 from ai_playground.utils.logger.logger_manager import (
     LoggerManager,
     create_loggers,
@@ -26,6 +26,7 @@ if TYPE_CHECKING:
     from torch.optim import Optimizer, lr_scheduler
     from tqdm import tqdm
     from ai_playground.configs.config import ConfigProtocol
+    from ai_playground.distributed.base import Parallel
 
 
 class Trainer:
@@ -48,8 +49,9 @@ class Trainer:
         self.set_seed(
             config.experimental.seed + (self.strategy.world_size * self.strategy.rank)
         )
-        self.device_type = self.strategy.device_type
-        self.device = self.strategy.device
+        self.device_type: str = self.strategy.device_type
+        self.device: torch.device = self.strategy.device
+        self.compile: bool = self.config.experimental.compile
 
         self.precision: str = config.trainer.precision
         self.precision_dtype: torch.dtype = precision_to_dtype(self.precision)
@@ -132,6 +134,12 @@ class Trainer:
         )
         self.lr_scheduler = build_lr_scheduler(self.optimizer, self.config)
 
+    def _prepare_model(self, model: nn.Module, stage: str = "train"):
+        self.strategy.setup_environment(stage=stage)
+        model = self.strategy.wrap_model(model, stage=stage)
+
+        return torch.compile(model) if self.compile else model
+
     def _pre_fit(
         self,
         model: nn.Module,
@@ -139,12 +147,6 @@ class Trainer:
         val_dataloader: Optional[DataLoader],
     ):
         self.logger_manager.log_config(self.config)
-        self.strategy.setup_environment()
-        model = self.strategy.wrap_model(model)
-
-        # Configure optimizer and scheduler
-        if self.optimizer is None:
-            self.configure_optimizer_and_scheduler(model)
 
         # Try to load checkpoint
         step = 0
@@ -155,6 +157,12 @@ class Trainer:
             print(f"Resuming training from step: {step}")
         else:
             print("No checkpoint found, starting training from scratch")
+
+        model = self._prepare_model(model)  # type: ignore
+
+        # Configure optimizer and scheduler
+        if self.optimizer is None:
+            self.configure_optimizer_and_scheduler(model)
 
         # Setup progress bar
         if self.use_progress_bar and self.progress_bar is None:
@@ -255,7 +263,7 @@ class Trainer:
             dtype=self.precision_dtype,
             enabled=self.use_amp,
         ):
-            logits, loss = model(xb, yb)
+            logits, loss, _ = model(xb, yb)
         if not torch.isfinite(loss):
             raise RuntimeError(
                 f"Non-finite loss detected at step {self.global_step}: {loss}"
@@ -384,7 +392,7 @@ class Trainer:
         ):
             for xb, yb in val_dataloader:
                 xb, yb = xb.to(self.strategy.device), yb.to(self.strategy.device)
-                _, loss = model(xb, yb)
+                _, loss, _ = model(xb, yb)
                 total_loss += loss.detach() * xb.size(0)
                 count += xb.size(0)
             if was_training:
@@ -401,49 +409,27 @@ class Trainer:
         prompts: list[str],
         max_tokens: int = 500,
         use_cache: bool = True,
-        max_cache_len: int = 2048,
+        max_cache_len: int = 256,
     ):
+        model = self._prepare_model(model, stage="infer")  # type: ignore
         model.eval()
-        with torch.inference_mode():
-            token_list = [tokenizer.encode(c) for c in prompts]
-            max_len = max(len(t) for t in token_list)
-            batch_context = torch.zeros(
-                len(prompts), max_len, dtype=torch.long, device=self.strategy.device
-            )
-            for i, tokens in enumerate(token_list):
-                batch_context[i, : len(tokens)] = torch.tensor(
-                    tokens, device=self.strategy.device
-                )
 
-            # Initialize KV cache
-            past_key_values = None
-            output_tokens = batch_context.clone()
-            for _ in range(max_tokens):
-                logits, _, past_key_values = model(
-                    output_tokens[:, -1:],
-                    past_key_values=past_key_values,
-                    use_cache=use_cache,
-                )
+        generator = Generator(
+            model=model, tokenizer=tokenizer, device=self.strategy.device
+        )
 
-                # Sliding window: keep only last max_cache_len tokens
-                if (
-                    use_cache
-                    and past_key_values is not None
-                    and max_cache_len is not None
-                ):
-                    new_pkv = []
-                    for k, v in past_key_values:
-                        if k.size(2) > max_cache_len:
-                            k = k[:, :, -max_cache_len:, :]
-                            v = v[:, :, -max_cache_len:, :]
-                        new_pkv.append((k, v))
-                    past_key_values = new_pkv
+        return generator.generate(
+            prompts=prompts,
+            max_tokens=max_tokens,
+            use_cache=use_cache,
+            max_cache_len=max_cache_len,
+        )
 
-                # Append next token
-                next_token = torch.argmax(logits[:, -1, :], dim=-1, keepdim=True)
-                output_tokens = torch.cat([output_tokens, next_token], dim=1)
-
-        return [tokenizer.decode(seq.tolist()) for seq in output_tokens]
+    def _unwrap_model(self, model):
+        if hasattr(model, "_orig_mod"):
+            model = model._orig_mod
+        model = self.strategy.unwrap_model(model)
+        return model
 
     def save_checkpoint(self, model: nn.Module):
         if self.strategy.is_main_process():
@@ -452,7 +438,7 @@ class Trainer:
                 path = Path(path) / self.experiment_name
             Path(path).mkdir(parents=True, exist_ok=True)
             checkpoint = {
-                "model": self.strategy.unwrap_model(model).state_dict(),
+                "model": self._unwrap_model(model).state_dict(),
                 "optimizer": self.optimizer.state_dict() if self.optimizer else None,
                 "scheduler": (
                     self.lr_scheduler.state_dict() if self.lr_scheduler else None
@@ -480,6 +466,7 @@ class Trainer:
 
         checkpoint = torch.load(path, map_location=self.strategy.device)
         model.load_state_dict(checkpoint["model"])
+        model = torch.compile(model) if self.compile else model  # type: ignore
 
         if not self.optimizer:
             self.configure_optimizer_and_scheduler(model)
