@@ -8,7 +8,7 @@ import matplotlib.pyplot as plt
 import torch
 from ai_playground.utils.load_yaml_config import load_yaml_config
 from ai_playground.utils.utils import build_data_pipeline, build_model, get_strategy
-from ai_playground.trainer.trainer import Trainer
+from ai_playground.runner.trainer import Trainer
 
 from typing import TYPE_CHECKING
 
