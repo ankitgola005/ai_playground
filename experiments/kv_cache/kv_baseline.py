@@ -65,7 +65,7 @@ def main():
     strategy = get_strategy(config.distributed)
 
     # Train or load benchmark
-    # strategy.launch(run_training, config)
+    strategy.launch(run_training, config)
 
     # Run inference
     max_tokens = 192

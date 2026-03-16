@@ -85,7 +85,11 @@ class MultiHeadAttention(nn.Module):
             torch.matmul(q, k.transpose(-2, -1)) * self.scale
         )  # (B, n_head, T, head_dim) @ (B, n_head, head_dim, T) -> (B, n_head, T, T)
         key_len = k.size(2)
-        atten = atten.masked_fill(~self.mask[:T, :key_len], float("-inf"))
+        # Training: T > 1
+        # Prefill: T > 1
+        # Decode: T == 1
+        if T > 1:
+            atten = atten.masked_fill(~self.mask[:T, :key_len], float("-inf")) 
         atten = torch.softmax(atten, dim=-1)  # (B, n_head, T, T)
         self.last_attn = atten
         atten = self.attn_dropout(atten)  # (B, n_head, T, T)
