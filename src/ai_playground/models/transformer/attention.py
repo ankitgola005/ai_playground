@@ -89,7 +89,7 @@ class MultiHeadAttention(nn.Module):
         # Prefill: T > 1
         # Decode: T == 1
         if T > 1:
-            atten = atten.masked_fill(~self.mask[:T, :key_len], float("-inf")) 
+            atten = atten.masked_fill(~self.mask[:T, :key_len], float("-inf"))
         atten = torch.softmax(atten, dim=-1)  # (B, n_head, T, T)
         self.last_attn = atten
         atten = self.attn_dropout(atten)  # (B, n_head, T, T)

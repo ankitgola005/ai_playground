@@ -414,11 +414,11 @@ class Trainer:
         model = self._prepare_model(model, stage="infer")  # type: ignore
         model.eval()
 
-        generator = Generator(
+        self.generator = Generator(
             model=model, tokenizer=tokenizer, device=self.strategy.device
         )
 
-        return generator.generate(
+        return self.generator.generate(
             prompts=prompts,
             max_tokens=max_tokens,
             use_cache=use_cache,

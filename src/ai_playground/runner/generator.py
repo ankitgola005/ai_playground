@@ -1,4 +1,5 @@
 import torch
+import time
 
 
 class Generator:
@@ -6,6 +7,11 @@ class Generator:
         self.model = model
         self.tokenizer = tokenizer
         self.device = device
+        self.time_dict = {
+            "ctx_len": 0.0,
+            "prefill_time": 0.0,
+            "decode_time": 0.0,
+        }
 
     def generate(
         self,
@@ -14,6 +20,8 @@ class Generator:
         use_cache=True,
         max_cache_len=256,
     ):
+        self.time_dict_reset()
+        self.time_dict["ctx_len"] = len(prompts[0])
 
         model = self.model
         model.eval()
@@ -36,19 +44,26 @@ class Generator:
 
             past_key_values = None
 
+            torch.cuda.synchronize()
+            start_time = time.perf_counter()
             if use_cache:
                 past_key_values = model.init_kv_cache(
                     B,
                     max_cache_len,
                     device=self.device,
                 )
-
+                # Prefill
                 model(batch_context, past_key_values=past_key_values, use_cache=True)
-
             output = batch_context
 
-            for _ in range(max_tokens):
+            torch.cuda.synchronize()
+            prefill_time = time.perf_counter() - start_time
 
+            torch.cuda.synchronize()
+            self.time_dict["prefill_time"] = prefill_time
+            start_time = time.perf_counter()
+            for _ in range(max_tokens):
+                # decode
                 logits, _, past_key_values = model(
                     output[:, -1:],
                     past_key_values=past_key_values,
@@ -57,5 +72,14 @@ class Generator:
 
                 next_token = torch.argmax(logits[:, -1], dim=-1, keepdim=True)
                 output = torch.cat([output, next_token], dim=1)
-
+            torch.cuda.synchronize()
+            decode_time = time.perf_counter() - start_time
+            self.time_dict["decode_time"] = decode_time
         return [self.tokenizer.decode(o.tolist()) for o in output]
+
+    def time_dict_reset(self):
+        self.time_dict = {
+            "ctx_len": 0.0,
+            "prefill_time": 0.0,
+            "decode_time": 0.0,
+        }

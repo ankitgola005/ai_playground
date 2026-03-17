@@ -6,7 +6,7 @@
 | --------- | ------------------------------------------------------------------- |
 | Dataset   | `shakespeare.txt` from `ai_playground/data/datasets/text_datasets/` |
 | Model     | MiniGPT-style transformer                                           |
-| Config    | [gpt_config.yaml](../../configs/gpt_config.yaml)                    |
+| Base Config|  [gpt_config.yaml](../../src/ai_playground/configs/gpt_config.yaml)
 
 > **Objective:** Study the effect of model width (hidden dimension / number of heads) on validation loss.
 
