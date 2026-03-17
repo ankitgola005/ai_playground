@@ -30,6 +30,7 @@ class MiniGPT(nn.Module):
                 TransformerBlock(
                     embed_dim=self.config.model.model_kwargs["n_embed"],
                     n_head=self.config.model.model_kwargs["n_head"],
+                    n_kv_head=self.config.model.model_kwargs["n_kv_head"],
                     block_size=self.config.model.model_kwargs["block_size"],
                     hidden_dim=self.config.model.model_kwargs["hidden_dim"],
                     use_flash_attention=self.config.model.model_kwargs[
@@ -82,7 +83,7 @@ class MiniGPT(nn.Module):
             caches.append(
                 KVCache(
                     B,
-                    self.config.model.model_kwargs["n_head"],
+                    self.config.model.model_kwargs["n_kv_head"],
                     max_len,
                     self.config.model.model_kwargs["n_embed"]
                     // self.config.model.model_kwargs["n_head"],

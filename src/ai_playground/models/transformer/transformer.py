@@ -22,6 +22,7 @@ class TransformerBlock(nn.Module):
         self,
         embed_dim,
         n_head,
+        n_kv_head,
         block_size,
         hidden_dim,
         use_flash_attention,
@@ -33,6 +34,7 @@ class TransformerBlock(nn.Module):
         self.attention = MultiHeadAttention(
             embed_dim=embed_dim,
             n_head=n_head,
+            n_kv_head=n_kv_head,
             block_size=block_size,
             use_flash_attention=use_flash_attention,
             attn_droupout=attn_dropout,
