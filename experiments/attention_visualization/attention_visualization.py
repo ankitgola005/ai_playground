@@ -104,7 +104,8 @@ def main() -> None:
 
     tokens: List[int] = tokenizer.encode(sample_text)
     decoded_tokens: List[str] = [tokenizer.decode([t]) for t in tokens]
-
+    config.model.model_kwargs["use_flash_attention"] = False
+    
     for n_layer in layer_sweep:
         print(f"\nRunning experiment with n_layer = {n_layer}")
         config.model.model_kwargs["n_layer"] = n_layer
