@@ -24,13 +24,19 @@ class TransformerBlock(nn.Module):
         n_head,
         block_size,
         hidden_dim,
+        use_flash_attention,
         attn_dropout,
         residual_dropout,
         ffn_dropout,
     ):
         super().__init__()
         self.attention = MultiHeadAttention(
-            embed_dim, n_head, block_size, attn_dropout, residual_dropout
+            embed_dim=embed_dim,
+            n_head=n_head,
+            block_size=block_size,
+            use_flash_attention=use_flash_attention,
+            attn_droupout=attn_dropout,
+            residual_droupout=residual_dropout,
         )
         self.ffn = FFN(embed_dim, hidden_dim, ffn_dropout)
         self.linear1 = nn.LayerNorm(embed_dim)

@@ -28,13 +28,16 @@ class MiniGPT(nn.Module):
         self.transformer_blocks = nn.Sequential(
             *[
                 TransformerBlock(
-                    self.config.model.model_kwargs["n_embed"],
-                    self.config.model.model_kwargs["n_head"],
-                    self.config.model.model_kwargs["block_size"],
-                    self.config.model.model_kwargs["hidden_dim"],
-                    self.config.model.model_kwargs["attn_dropout"],
-                    self.config.model.model_kwargs["residual_dropout"],
-                    self.config.model.model_kwargs["ffn_dropout"],
+                    embed_dim=self.config.model.model_kwargs["n_embed"],
+                    n_head=self.config.model.model_kwargs["n_head"],
+                    block_size=self.config.model.model_kwargs["block_size"],
+                    hidden_dim=self.config.model.model_kwargs["hidden_dim"],
+                    use_flash_attention=self.config.model.model_kwargs[
+                        "use_flash_attention"
+                    ],
+                    attn_dropout=self.config.model.model_kwargs["attn_dropout"],
+                    residual_dropout=self.config.model.model_kwargs["residual_dropout"],
+                    ffn_dropout=self.config.model.model_kwargs["ffn_dropout"],
                 )
                 for _ in range(self.config.model.model_kwargs["n_layer"])
             ]

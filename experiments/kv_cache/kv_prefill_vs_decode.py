@@ -13,12 +13,7 @@ if TYPE_CHECKING:
 
 def get_seq(bm: str = "perf"):
     seq_lens = []
-    # Small lengths: 1 → 128 (step 32)
-    seq_lens += list(range(1, 129, 32))
-    # Medium lengths: 128 → 1024 (step 64)
-    seq_lens += list(range(160, 1025, 64))
-    # Large lengths: 1024 → 7168 (step 128)
-    seq_lens += list(range(1152, 7169, 128))
+    seq_lens += list(range(1, 33281, 512))
     if bm == "perf":
         seq_lens.reverse()
     return seq_lens
@@ -111,23 +106,41 @@ def run_training(config: "ConfigProtocol", metric_fn: Callable, filename: str):
 
 def plot_metrics(metrics_kv, metrics_nokv, filename: str):
     plt.figure(figsize=(12, 6))
-    keys = list(metrics_kv.keys())
-    keys.remove("ctx_len")
-    for key in keys:
+
+    ctx = metrics_kv["ctx_len"]
+    keys = [k for k in metrics_kv.keys() if k != "ctx_len"]
+
+    linestyles = ["-", "--", "-.", ":"]
+    markers = ["o", "s", "^", "d"]
+
+    for i, key in enumerate(keys):
+        style = linestyles[i % len(linestyles)]
+        marker = markers[i % len(markers)]
+
         plt.plot(
-            metrics_kv["ctx_len"], metrics_kv[key], "r-o", label=f"{key} (KV cache)"
+            ctx,
+            metrics_kv[key],
+            color="red",
+            linestyle=style,
+            marker=marker,
+            label=f"{key} (KV cache)",
         )
+
         plt.plot(
-            metrics_nokv["ctx_len"],
+            ctx,
             metrics_nokv[key],
-            "b-o",
+            color="blue",
+            linestyle=style,
+            marker=marker,
             label=f"{key} (No KV cache)",
         )
+
     plt.xlabel("Context Length (tokens)")
     plt.ylabel("Value")
     plt.title("Benchmark Metrics With/Without KV Cache")
     plt.grid(True)
     plt.legend()
+
     plt.savefig(filename, dpi=300)
     plt.show()
 

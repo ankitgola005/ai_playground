@@ -1,5 +1,6 @@
 import torch
 import torch.nn as nn
+import torch.nn.functional as F
 
 
 class SelfAttention(nn.Module):
@@ -30,11 +31,20 @@ class SelfAttention(nn.Module):
 
 
 class MultiHeadAttention(nn.Module):
-    def __init__(self, embed_dim, n_head, block_size, attn_droupout, residual_droupout):
+    def __init__(
+        self,
+        embed_dim,
+        n_head,
+        block_size,
+        use_flash_attention,
+        attn_droupout,
+        residual_droupout,
+    ):
         super().__init__()
         self.embed_dim = embed_dim
         self.head_dim = embed_dim // n_head
         self.n_head = n_head
+        self.use_flash_attention = use_flash_attention
         self.last_attn = 0.0
 
         assert embed_dim % n_head == 0, "embed_dim must be divisible by n_head"
@@ -81,21 +91,32 @@ class MultiHeadAttention(nn.Module):
                 present = cache
 
         # Compute attention scores
-        atten = (
-            torch.matmul(q, k.transpose(-2, -1)) * self.scale
-        )  # (B, n_head, T, head_dim) @ (B, n_head, head_dim, T) -> (B, n_head, T, T)
-        key_len = k.size(2)
         # Training: T > 1
         # Prefill: T > 1
         # Decode: T == 1
-        if T > 1:
-            atten = atten.masked_fill(~self.mask[:T, :key_len], float("-inf"))
-        atten = torch.softmax(atten, dim=-1)  # (B, n_head, T, T)
-        self.last_attn = atten
-        atten = self.attn_dropout(atten)  # (B, n_head, T, T)
-        atten = torch.matmul(
-            atten, v
-        )  # (B, n_head, T, T) @ (B, n_head, T, head_dim) -> (B, n_head, T, head_dim)
+        if self.use_flash_attention:
+            atten = F.scaled_dot_product_attention(
+                q,
+                k,
+                v,
+                attn_mask=None,
+                dropout_p=self.attn_dropout.p if self.training else 0.0,
+                is_causal=(T > 1),
+            )
+        else:
+            atten = (
+                torch.matmul(q, k.transpose(-2, -1)) * self.scale
+            )  # (B, n_head, T, head_dim) @ (B, n_head, head_dim, T) -> (B, n_head, T, T)
+            key_len = k.size(2)
+
+            if T > 1:
+                atten = atten.masked_fill(~self.mask[:T, :key_len], float("-inf"))
+            atten = torch.softmax(atten, dim=-1)  # (B, n_head, T, T)
+            self.last_attn = atten
+            atten = self.attn_dropout(atten)  # (B, n_head, T, T)
+            atten = torch.matmul(
+                atten, v
+            )  # (B, n_head, T, T) @ (B, n_head, T, head_dim) -> (B, n_head, T, head_dim)
 
         # Concatenate heads and project
         atten = (

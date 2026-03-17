@@ -50,7 +50,7 @@ python -u kv_prefill_vs_decode.py
 ### Prefill vs Decode
 
 - **Prefill with KV cache** grows quadratically `(O(n²))` with context length, reflecting full attention computation for all past tokens.
-- **Decode with KV cache** is effectively constant in this small model because compute is tiny and memory/kernel overhead dominates. On larger models, it would scale linearly `(O(n))` as each new token only attends over cached KV pairs.
+- **Decode with KV cache** is effectively constant for a small model because compute is tiny and memory/kernel overhead dominates. On larger models, it scales linearly `(O(n))` as each new token only attends over cached KV pairs.
 
 ### KV vs No KV
 
