@@ -3,7 +3,7 @@ from torch.nn import functional as F
 
 from ai_playground.models.transformer.embeddings import EmbeddingWrapper
 from ai_playground.models.transformer.transformer import TransformerBlock
-from ai_playground.models.transformer.kv_cache import KVCache
+from ai_playground.models.transformer.kv_cache import KVCache, PagedKVCache
 
 from typing import TYPE_CHECKING
 
@@ -50,6 +50,16 @@ class MiniGPT(nn.Module):
             self.config.model.model_kwargs["n_embed"], vocab_size, bias=False
         )
 
+        # KV Cache
+        self.use_kv_cache = self.config.model.model_kwargs["use_kv_cache"]
+        self.kv_cache_max_len = self.config.model.model_kwargs["kv_cache_max_len"]
+        self.use_paged_kv_cache = (
+            self.config.model.model_kwargs["use_paged_kv_cache"] and self.use_kv_cache
+        )
+        self.paged_kv_cache_block_size = self.config.model.model_kwargs[
+            "paged_kv_cache_block_size"
+        ]
+
     def forward(self, idx, targets=None, past_key_values=None, use_cache=False):
         # Embeddings
         x = self.embeddings(idx)
@@ -77,16 +87,26 @@ class MiniGPT(nn.Module):
         return logits, loss, new_past_key_values if use_cache else None
 
     def init_kv_cache(self, B: int, max_len: int = 1024, device: str = "cuda"):
+        assert self.use_kv_cache, "Trying to init KV cache, but `use_kv_cache=False`"
+
+        cache_impl = None
+        _size = 0
+        if self.use_paged_kv_cache:
+            cache_impl = PagedKVCache
+            _size = self.kv_cache_max_len
+        else:
+            cache_impl = KVCache
+            _size = self.paged_kv_cache_block_size
         caches = []
 
         for block in self.transformer_blocks:
             caches.append(
-                KVCache(
+                cache_impl(
                     B,
                     self.config.model.model_kwargs["n_kv_head"],
-                    max_len,
                     self.config.model.model_kwargs["n_embed"]
                     // self.config.model.model_kwargs["n_head"],
+                    _size,
                     device,
                     next(self.parameters()).dtype,
                 )

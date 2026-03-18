@@ -18,6 +18,10 @@ model:
     ffn_dropout: 0.1
     attn_dropout: 0.1
     residual_dropout: 0.1
+    use_kv_cache: true
+    kv_cache_max_len: 1024
+    use_paged_kv_cache: true
+    paged_kv_cache_block_size: 128
 
 trainer:
   auto_restart: true

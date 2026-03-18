@@ -94,8 +94,8 @@ class MultiHeadAttention(nn.Module):
             cache = past_key_value
 
             if cache is not None:
-                cache.append(k,v)
-                k, v = cache.get_kv() 
+                cache.append(k, v)
+                k, v = cache.get_kv()
                 present = cache
 
         # Expand kv heads
