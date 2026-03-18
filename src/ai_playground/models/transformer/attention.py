@@ -94,19 +94,14 @@ class MultiHeadAttention(nn.Module):
             cache = past_key_value
 
             if cache is not None:
-                t = cache.idx
-                cache.k[:, :, t : t + T] = k
-                cache.v[:, :, t : t + T] = v
-                cache.idx += T
-
-                k = cache.k[:, :, : cache.idx]
-                v = cache.v[:, :, : cache.idx]
-
+                cache.append(k,v)
+                k, v = cache.get_kv() 
                 present = cache
 
         # Expand kv heads
-        k = k.repeat_interleave(self.group_size, dim=1)
-        v = v.repeat_interleave(self.group_size, dim=1)
+        k, v = self.expand_kv(k, v, self.group_size)
+        # k = k.repeat_interleave(self.group_size, dim=1)
+        # v = v.repeat_interleave(self.group_size, dim=1)
 
         # Compute attention scores
         # Training: T > 1
@@ -144,3 +139,17 @@ class MultiHeadAttention(nn.Module):
         out = self.resid_dropout(out)
 
         return out, present
+
+    def expand_kv(self, k, v, group_size):
+        B, H_kv, T, D = k.shape
+
+        k = k[:, :, None, :, :]  # (B, H_kv, 1, T, D)
+        v = v[:, :, None, :, :]
+
+        k = k.expand(B, H_kv, group_size, T, D)
+        v = v.expand(B, H_kv, group_size, T, D)
+
+        k = k.contiguous().view(B, H_kv * group_size, T, D)
+        v = v.contiguous().view(B, H_kv * group_size, T, D)
+
+        return k, v
