@@ -1,6 +1,9 @@
 from abc import ABC, abstractmethod
-from typing import Tuple
+from typing import TYPE_CHECKING
 import torch
+
+if TYPE_CHECKING:
+    from typing import Tuple, Iterator
 
 
 class BaseKVCache(ABC):
@@ -13,6 +16,10 @@ class BaseKVCache(ABC):
     def get_kv(self) -> Tuple[torch.Tensor, torch.Tensor]:
         """Return full KV tensors"""
         pass
+
+    def iter_kv(self) -> Iterator[Tuple[torch.Tensor, torch.Tensor]]:
+        """Yield KV chunks of shape (B, H, T_chunk, D)"""
+        raise NotImplementedError
 
     def get_blocks(self):
         """Optional: only for paged cache"""

@@ -1,6 +1,11 @@
 import torch
 from ai_playground.inference.cache.base_kv_cache import BaseKVCache
 
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from typing import Tuple, Iterator
+
 
 class PagedKVCache(BaseKVCache):
     def __init__(self, B, H, head_dim, block_size, device, dtype):
@@ -97,6 +102,23 @@ class PagedKVCache(BaseKVCache):
         v = torch.cat(v_list, dim=2)
 
         return k, v
+
+    def iter_kv(self) -> Iterator[Tuple[torch.Tensor, torch.Tensor]]:
+        """
+        Yield KV blocks in order.
+
+        Yields:
+            (k, v): each of shape (B, H, T_block, D)
+        """
+        for i in range(len(self.blocks_k)):
+            if i == len(self.blocks_k) - 1:
+                # last block → only valid tokens
+                yield (
+                    self.blocks_k[i][:, :, : self.offset],
+                    self.blocks_v[i][:, :, : self.offset],
+                )
+            else:
+                yield self.blocks_k[i], self.blocks_v[i]
 
     def supports_blocks(self) -> bool:
         return True

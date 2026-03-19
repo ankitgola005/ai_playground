@@ -276,47 +276,55 @@ class MultiHeadAttention(nn.Module):
             - Avoids large intermediate tensors across full sequence length
             - Final division normalizes accumulated weighted values
         """
-        blocks_k, blocks_v, last_offset = cache.get_blocks()
+        max_score = torch.full_like(
+            q[..., :1], float("-inf")
+        )  # Running max for stability
+        sum_exp = torch.zeros_like(max_score)  # runnign averaging denominator
+        out = torch.zeros_like(q)  # running weighted values
 
-        # Treat current token as last block
-        blocks_k = list(blocks_k) + [k_cur]
-        blocks_v = list(blocks_v) + [v_cur]
-
-        max_score = None  # Running max for stability
-        sum_exp = None  # runnign averaging denominator
-        out = None  # running weighted values
-
-        for i, (k_block, v_block) in enumerate(zip(blocks_k, blocks_v)):
-
-            # Apply last_offset only for last cached block
-            if i == len(blocks_k) - 2:
-                k_block = k_block[:, :, :last_offset]
-                v_block = v_block[:, :, :last_offset]
-
+        # iterate cached KV
+        for k_block, v_block in cache.iter_kv():
             # Expand KV heads
             k_exp, v_exp = self.expand_kv(k_block, v_block, self.group_size)
-
             scores = torch.matmul(q, k_exp.transpose(-2, -1)) * self.scale
-            block_max = scores.max(dim=-1, keepdim=True).values
+            max_score, sum_exp, out = self._streaming_softmax_update(
+                max_score, sum_exp, out, scores, v_exp
+            )
 
-            if max_score is None:
-                max_score = block_max
-                exp_scores = torch.exp(scores - max_score)
-                sum_exp = exp_scores.sum(dim=-1, keepdim=True)
-                out = torch.matmul(exp_scores, v_exp)
-                continue
-            assert sum_exp is not None and out is not None and max_score is not None
+        # treat current token as final chunk
+        k_exp, v_exp = self.expand_kv(k_cur, v_cur, self.group_size)
+        scores = torch.matmul(q, k_exp.transpose(-2, -1)) * self.scale
+        max_score, sum_exp, out = self._streaming_softmax_update(
+            max_score, sum_exp, out, scores, v_exp
+        )
 
-            # Streaming softmax update
-            new_max = torch.maximum(max_score, block_max)
-
-            scale_old = torch.exp(max_score - new_max)
-            exp_new = torch.exp(scores - new_max)
-
-            sum_exp = scale_old * sum_exp + exp_new.sum(dim=-1, keepdim=True)
-            out = scale_old * out + torch.matmul(exp_new, v_exp)
-
-            max_score = new_max
-
-        assert sum_exp is not None and out is not None
         return out / sum_exp
+
+    def _streaming_softmax_update(
+        self,
+        max_score: torch.Tensor,
+        sum_exp: torch.Tensor,
+        out: torch.Tensor,
+        scores: torch.Tensor,
+        v_exp: torch.Tensor,
+    ) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
+        """
+        Perform numerically stable streaming softmax update.
+
+        Args:
+            max_score: running max (B, H, 1, Tq)
+            sum_exp: running sum of exp (B, H, 1, Tq)
+            out: running output (B, H, Tq, D)
+            scores: current attention scores (B, H, Tq, Tk)
+            v_exp: expanded values (B, H, Tk, D)
+
+        Returns:
+            updated (max_score, sum_exp, out)
+        """
+        block_max = scores.max(dim=-1, keepdim=True).values
+        new_max = torch.maximum(max_score, block_max)
+        scale_old = torch.exp(max_score - new_max)
+        exp_new = torch.exp(scores - new_max).to(v_exp.dtype)
+        sum_exp = scale_old * sum_exp + exp_new.sum(dim=-1, keepdim=True)
+        out = scale_old * out + torch.matmul(exp_new, v_exp)
+        return new_max, sum_exp, out
