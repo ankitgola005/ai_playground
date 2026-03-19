@@ -3,7 +3,7 @@ from torch.nn import functional as F
 
 from ai_playground.models.transformer.embeddings import EmbeddingWrapper
 from ai_playground.models.transformer.transformer import TransformerBlock
-from ai_playground.models.transformer.kv_cache import KVCache, PagedKVCache
+from ai_playground.inference.cache import KVCache, PagedKVCache
 
 from typing import TYPE_CHECKING
 
