@@ -14,7 +14,7 @@ class DataConfigProtocol(Protocol):
 
 class ModelConfigProtocol(Protocol):
     model_name: str
-    model_kwargs: Mapping[str, object]
+    model_kwargs: Mapping[str, int | str | float]
 
 
 class TrainerConfigProtocol(Protocol):
@@ -26,7 +26,7 @@ class TrainerConfigProtocol(Protocol):
 
     lr: float
     lr_config: Mapping[
-        str, object
+        str, int | str | float
     ]  # e.g., {"schedule": str, "min_lr_ratio": float, ...}
 
     betas: Tuple[float, float]
