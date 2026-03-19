@@ -4,32 +4,77 @@ from ai_playground.inference.cache.base_kv_cache import BaseKVCache
 from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
-    from typing import Tuple, Iterator
+    from typing import Tuple, Iterator, List
 
 
 class PagedKVCache(BaseKVCache):
-    def __init__(self, B, H, head_dim, block_size, device, dtype):
-        self.B = B
-        self.H = H
-        self.block_size = block_size
-        self.head_dim = head_dim
-        self.device = device
-        self.dtype = dtype
+    """
+    Paged (block-wise) KV cache for efficient autoregressive decoding.
+    Stores keys and values in fixed-size blocks to avoid large tensor
+    reallocations and enable streaming attention.
+
+    Attributes:
+        B (int): Batch size
+        H (int): Number of KV heads
+        head_dim (int): Dimension per head
+        block_size (int): Tokens per block
+        device (torch.device): Storage device
+        dtype (torch.dtype): Tensor dtype
+
+        blocks_k (List[torch.Tensor]): List of key blocks
+        blocks_v (List[torch.Tensor]): List of value blocks
+
+        curr_block_k (torch.Tensor): Active key block
+        curr_block_v (torch.Tensor): Active value block
+        offset (int): Write position within current block
+
+        total_tokens (int): Total tokens stored across all blocks
+    """
+
+    def __init__(
+        self,
+        B: int,
+        H: int,
+        head_dim: int,
+        block_size: int,
+        device: torch.device,
+        dtype: torch.dtype,
+    ) -> None:
+        """
+        Initialize Paged KV Cache
+
+        Args:
+            B (int): Batch size
+            H (int): Number of KV heads
+            head_dim (int): Dimension per head
+            block_size (int): Tokens per block
+            device (torch.device): Storage device
+            dtype (torch.dtype): Tensor dtype
+        """
+        self.B: int = B
+        self.H: int = H
+        self.head_dim: int = head_dim
+        self.block_size: int = block_size
+        self.device: torch.device = device
+        self.dtype: torch.dtype = dtype
 
         # list of blocks
         self.blocks_k = []
         self.blocks_v = []
 
         # current write state
-        self.curr_block_k = None
-        self.curr_block_v = None
-        self.offset = 0  # position inside current block
+        self.curr_block_k: torch.Tensor | None = None
+        self.curr_block_v: torch.Tensor | None = None
+        self.offset: int = 0
 
-        self.total_tokens = 0
+        self.total_tokens: int = 0
 
         self._alloc_new_block()
 
-    def _alloc_new_block(self):
+    def _alloc_new_block(self) -> None:
+        """
+        Allocate a new KV block and set it as current.
+        """
         k_block = torch.empty(
             self.B,
             self.H,
@@ -47,9 +92,13 @@ class PagedKVCache(BaseKVCache):
         self.curr_block_v = v_block
         self.offset = 0
 
-    def append(self, k, v):
+    def append(self, k: torch.Tensor, v: torch.Tensor) -> None:
         """
-        k, v: (B, H, T, D)
+        Append KV tensors to the cache.
+
+        Args:
+            k: Key tensor of shape (B, H, T, D)
+            v: Value tensor of shape (B, H, T, D)
         """
         B, H, T, D = k.shape
         t_start = 0
@@ -62,7 +111,7 @@ class PagedKVCache(BaseKVCache):
                 space = self.block_size
 
             t_chunk = min(space, T - t_start)
-
+            assert self.curr_block_k is not None and self.curr_block_v is not None
             self.curr_block_k[:, :, self.offset : self.offset + t_chunk] = k[
                 :, :, t_start : t_start + t_chunk
             ]
@@ -74,24 +123,28 @@ class PagedKVCache(BaseKVCache):
             self.total_tokens += t_chunk
             t_start += t_chunk
 
-    def get_kv(self):
+    def get_kv(self) -> Tuple[torch.Tensor, torch.Tensor]:
         """
+        Return concatenated KV tensors.
+
         Returns:
-            k, v: (B, H, total_tokens, D)
+            Tuple of:
+                k: (B, H, T_total, D)
+                v: (B, H, T_total, D)
         """
         if len(self.blocks_k) == 1:
-            # fast path (no concat)
+            # fast path: no concat
             k = self.blocks_k[0][:, :, : self.offset]
             v = self.blocks_v[0][:, :, : self.offset]
             return k, v
 
         # concat all full blocks + partial last block
-        k_list = []
-        v_list = []
+        k_list: List[torch.Tensor] = []
+        v_list: List[torch.Tensor] = []
 
         for i in range(len(self.blocks_k)):
             if i == len(self.blocks_k) - 1:
-                # last block → only valid portion
+                # last block: only valid portion
                 k_list.append(self.blocks_k[i][:, :, : self.offset])
                 v_list.append(self.blocks_v[i][:, :, : self.offset])
             else:
@@ -108,11 +161,13 @@ class PagedKVCache(BaseKVCache):
         Yield KV blocks in order.
 
         Yields:
-            (k, v): each of shape (B, H, T_block, D)
+            Tuples of:
+                k: (B, H, T_block, D)
+                v: (B, H, T_block, D)
         """
         for i in range(len(self.blocks_k)):
             if i == len(self.blocks_k) - 1:
-                # last block → only valid tokens
+                # last block: only valid tokens
                 yield (
                     self.blocks_k[i][:, :, : self.offset],
                     self.blocks_v[i][:, :, : self.offset],
@@ -121,10 +176,29 @@ class PagedKVCache(BaseKVCache):
                 yield self.blocks_k[i], self.blocks_v[i]
 
     def supports_blocks(self) -> bool:
+        """Return True: paged cache supports block iteration."""
         return True
 
-    def get_blocks(self):
+    def get_blocks(self) -> Tuple[list[torch.Tensor], list[torch.Tensor], int]:
+        """
+        Return raw block storage (legacy / debug use).
+
+        Returns:
+            blocks_k: list of key blocks
+            blocks_v: list of value blocks
+            offset: valid tokens in last block
+        """
         return self.blocks_k, self.blocks_v, self.offset
 
-    def __len__(self):
+    def __len__(self) -> int:
+        """Return total number of tokens stored."""
         return self.total_tokens
+
+    def reset(self) -> None:
+        """
+        Clear the cache and reinitialize with a fresh block.
+        """
+        self.blocks_k.clear()
+        self.blocks_v.clear()
+        self.total_tokens = 0
+        self._alloc_new_block()
