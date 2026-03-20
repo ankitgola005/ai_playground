@@ -2,7 +2,7 @@
 from typing import TYPE_CHECKING, Protocol
 
 if TYPE_CHECKING:
-    from typing import Tuple, Mapping, Sequence
+    from typing import Tuple, Sequence, Dict
     from pathlib import Path
 
 
@@ -14,7 +14,7 @@ class DataConfigProtocol(Protocol):
 
 class ModelConfigProtocol(Protocol):
     model_name: str
-    model_kwargs: Mapping[str, int | str | float]
+    model_kwargs: Dict[str, int | str | float]
 
 
 class TrainerConfigProtocol(Protocol):
@@ -25,7 +25,7 @@ class TrainerConfigProtocol(Protocol):
     val_interval: int
 
     lr: float
-    lr_config: Mapping[
+    lr_config: Dict[
         str, int | str | float
     ]  # e.g., {"schedule": str, "min_lr_ratio": float, ...}
 

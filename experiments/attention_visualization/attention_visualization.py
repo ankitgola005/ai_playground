@@ -5,8 +5,8 @@ from torch import Tensor, nn
 import matplotlib.pyplot as plt
 
 from ai_playground.utils.load_yaml_config import load_yaml_config
-from ai_playground.utils.utils import build_data_pipeline, build_model, get_strategy
-from ai_playground.runner.trainer import Trainer
+from ai_playground.utils import build_data_pipeline, build_model, get_strategy
+from ai_playground.trainer import Trainer
 from ai_playground.configs.config import ConfigProtocol
 
 torch.backends.cuda.matmul.allow_tf32 = True
@@ -109,7 +109,7 @@ def main() -> None:
     for n_layer in layer_sweep:
         print(f"\nRunning experiment with n_layer = {n_layer}")
         config.model.model_kwargs["n_layer"] = n_layer
-        model_cls = build_model(config)
+        model_cls = build_model(config.model)
         model: nn.Module = model_cls(tokenizer.vocab_size, config)
         model = torch.compile(model)  # type: ignore
         trainer = Trainer(config, strategy=get_strategy(config.distributed))

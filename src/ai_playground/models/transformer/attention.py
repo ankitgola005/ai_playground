@@ -9,32 +9,62 @@ if TYPE_CHECKING:
 
 
 class SelfAttention(nn.Module):
-    def __init__(self, embed_dim, head_dim, block_size):
-        super(SelfAttention, self).__init__()
-        self.key = nn.Linear(embed_dim, head_dim, bias=False)
-        self.query = nn.Linear(embed_dim, head_dim, bias=False)
-        self.value = nn.Linear(embed_dim, head_dim, bias=False)
+    """
+    Single-head causal self-attention.
 
-        # Causal mask
+    Shape:
+        Input: (B, T, C)
+        Output: (B, T, head_dim)
+    """
+
+    def __init__(self, embed_dim: int, head_dim: int, block_size: int) -> None:
+        """Initialize self attention.
+
+        Args:
+            embed_dim (int): Input embedding dimension.
+            head_dim (int): Dimension of the attention head.
+            block_size (int): Maximum sequence length (used for causal masking).
+        """
+        super().__init__()
+        self.key: nn.Linear = nn.Linear(embed_dim, head_dim, bias=False)
+        self.query: nn.Linear = nn.Linear(embed_dim, head_dim, bias=False)
+        self.value: nn.Linear = nn.Linear(embed_dim, head_dim, bias=False)
+
+        # Causal mask: upper triangular positions are False
         self.register_buffer(
             "mask", torch.tril(torch.ones(block_size, block_size, dtype=torch.bool))
         )
-        self.scale = head_dim**-0.5
+        self.scale: float = head_dim**-0.5
 
-    def forward(self, x):
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
+        """
+        Forward pass.
+
+        Args:
+            x (torch.Tensor): Input tensor of shape (B, T, embed_dim)
+
+        Returns:
+            torch.Tensor: Output tensor of shape (B, T, head_dim)
+        """
         B, T, C = x.shape
-        k = self.key(x)  # (B, T, embed_dim) -> (B, T, head_dim)
-        q = self.query(x)  # (B, T, embed_dim) -> (B, T, head_dim)
-        v = self.value(x)  # (B, T, embed_dim) -> (B, T, head_dim)
+        k: torch.Tensor = self.key(x)  # (B, T, head_dim)
+        q: torch.Tensor = self.query(x)  # (B, T, head_dim)
+        v: torch.Tensor = self.value(x)  # (B, T, head_dim)
 
-        atten = (
+        # Compute attention scores
+        attn_scores: torch.Tensor = (
             torch.matmul(q, k.transpose(-2, -1)) * self.scale
-        )  # (B, T, h) @ (B, h, T) -> (B, T, T)
-        atten = atten.masked_fill(
-            ~self.mask[:T, :T], float("-inf")  # type: ignore
         )  # (B, T, T)
-        atten = torch.softmax(atten, dim=-1)  # (B, T, T) Softmax over the k dim
-        return atten @ v  # (B, T, T) @ (B, T, h) -> (B, T, h)
+        attn_scores = attn_scores.masked_fill(
+            ~self.mask[:T, :T], float("-inf")  # type: ignore
+        )  # causal masking
+        attn_probs: torch.Tensor = torch.softmax(
+            attn_scores, dim=-1
+        )  # softmax over key dimension
+
+        # Weighted sum of values
+        out: torch.Tensor = torch.matmul(attn_probs, v)  # (B, T, head_dim)
+        return out
 
 
 class MultiHeadAttention(nn.Module):
@@ -78,42 +108,51 @@ class MultiHeadAttention(nn.Module):
 
     def __init__(
         self,
-        embed_dim,
-        n_head,
-        n_kv_head,
-        block_size,
-        use_flash_attention,
-        attn_droupout,
-        residual_droupout,
+        embed_dim: int,
+        n_head: int,
+        n_kv_head: int,
+        block_size: int,
+        use_flash_attention: bool,
+        attn_droupout: float,
+        residual_droupout: float,
     ):
         assert embed_dim % n_head == 0, "embed_dim must be divisible by n_head"
         assert n_head % n_kv_head == 0, "n_head must be divisible by n_kv_head"
 
         super().__init__()
-        self.embed_dim = embed_dim
-        self.head_dim = embed_dim // n_head
-        self.n_head = n_head
-        self.n_kv_head = n_kv_head
-        self.group_size = self.n_head // self.n_kv_head
-        self.use_flash_attention = use_flash_attention
-        self.last_attn = 0.0
+        self.embed_dim: int = embed_dim
+        self.head_dim: int = embed_dim // n_head
+        self.n_head: int = n_head
+        self.n_kv_head: int = n_kv_head
+        self.group_size: int = self.n_head // self.n_kv_head
+        self.use_flash_attention: bool = use_flash_attention
+        self.last_attn: float = 0.0
 
         # GQA projections
-        self.q_proj = nn.Linear(embed_dim, embed_dim, bias=False)
-        self.k_proj = nn.Linear(embed_dim, self.n_kv_head * self.head_dim, bias=False)
-        self.v_proj = nn.Linear(embed_dim, self.n_kv_head * self.head_dim, bias=False)
-        self.out_proj = nn.Linear(embed_dim, embed_dim, bias=False)
+        self.q_proj: nn.Linear = nn.Linear(embed_dim, embed_dim, bias=False)
+        self.k_proj: nn.Linear = nn.Linear(
+            embed_dim, self.n_kv_head * self.head_dim, bias=False
+        )
+        self.v_proj: nn.Linear = nn.Linear(
+            embed_dim, self.n_kv_head * self.head_dim, bias=False
+        )
+        self.out_proj: nn.Linear = nn.Linear(embed_dim, embed_dim, bias=False)
 
         # Causal mask
         self.register_buffer(
             "mask", torch.tril(torch.ones(block_size, block_size, dtype=torch.bool))
         )
-        self.scale = self.head_dim**-0.5
+        self.scale: float = self.head_dim**-0.5
 
-        self.attn_dropout = nn.Dropout(attn_droupout)
-        self.resid_dropout = nn.Dropout(residual_droupout)
+        self.attn_dropout: nn.Dropout = nn.Dropout(attn_droupout)
+        self.resid_dropout: nn.Dropout = nn.Dropout(residual_droupout)
 
-    def forward(self, x, past_key_value=None, use_cache=False):
+    def forward(
+        self,
+        x: torch.Tensor,
+        past_key_value: BaseKVCache | None = None,
+        use_cache: bool = False,
+    ):
         """
         Forward pass.
 
@@ -130,9 +169,9 @@ class MultiHeadAttention(nn.Module):
         B, T, C = x.shape
 
         # Projections
-        q = self.q_proj(x)
-        k = self.k_proj(x)
-        v = self.v_proj(x)
+        q: torch.Tensor = self.q_proj(x)
+        k: torch.Tensor = self.k_proj(x)
+        v: torch.Tensor = self.v_proj(x)
 
         # Reshape
         q = q.view(B, T, self.n_head, self.head_dim).transpose(1, 2)
@@ -143,7 +182,7 @@ class MultiHeadAttention(nn.Module):
         k_raw, v_raw = k, v
         cache: BaseKVCache | None = past_key_value if use_cache else None
         present = cache
-        is_decode = (T == 1) and use_cache
+        is_decode: bool = (T == 1) and use_cache
 
         # Prefill (T > 1)
         if use_cache and cache is not None and not is_decode:

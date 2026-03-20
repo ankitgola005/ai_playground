@@ -4,14 +4,15 @@ import os
 import matplotlib.pyplot as plt
 
 from ai_playground.utils.load_yaml_config import load_yaml_config
-from ai_playground.utils.utils import build_data_pipeline, build_model, get_strategy
-from ai_playground.runner.trainer import Trainer
+from ai_playground.utils import build_data_pipeline, build_model, get_strategy
+from ai_playground.trainer import Trainer
 
-from typing import TYPE_CHECKING, List, Dict
+from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
     from ai_playground.configs.config import ConfigProtocol
     import torch.nn as nn
+    from typing import List, Dict
 
 
 TARGET_TOKENS = 25_000_000
@@ -36,7 +37,7 @@ def run_context_sweep(
         print(f"Adjusted max_steps: {max_steps}")
 
         tokenizer, train_loader, val_loader = build_data_pipeline(config)
-        model_cls = build_model(config)
+        model_cls = build_model(config.model)
         model: nn.Module = model_cls(tokenizer.vocab_size, config)
         model = torch.compile(model)  # type: ignore
         trainer = Trainer(config, strategy=get_strategy(config.distributed))

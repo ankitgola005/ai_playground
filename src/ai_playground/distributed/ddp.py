@@ -35,7 +35,7 @@ class DDParallel(Parallel):
         """
         Placeholder for environment setup.
         """
-        super().setup_environment(stage)
+        pass
 
     def launch(self, trainer_fn: Callable, *args, **kwargs) -> None:
         """
@@ -109,7 +109,7 @@ class DDParallel(Parallel):
             optimizer = self.setup_optimizer(optimizer, model)
 
         if self.is_distributed():
-            sampler = DistributedSampler(
+            sampler: DistributedSampler = DistributedSampler(
                 dataloader.dataset,
                 num_replicas=self.world_size,
                 rank=self.rank,

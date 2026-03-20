@@ -34,7 +34,7 @@ class SingleDevice(Parallel):
         Args:
             stage (str): Stage of training or evaluation.
         """
-        super().setup_environment(stage)
+        pass
 
     def wrap_model(self, model: nn.Module, stage: str = "train") -> nn.Module:
         """

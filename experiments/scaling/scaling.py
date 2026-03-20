@@ -3,8 +3,8 @@ import copy
 import matplotlib.pyplot as plt
 
 from ai_playground.utils.load_yaml_config import load_yaml_config
-from ai_playground.utils.utils import build_data_pipeline, build_model, get_strategy
-from ai_playground.runner.trainer import Trainer
+from ai_playground.utils import build_data_pipeline, build_model, get_strategy
+from ai_playground.trainer import Trainer
 
 from typing import TYPE_CHECKING, List, Dict, Tuple
 
@@ -37,7 +37,7 @@ def run_single(config: "ConfigProtocol") -> Tuple[int, float]:
     """
     tokenizer, train_loader, val_loader = build_data_pipeline(config)
 
-    model_cls = build_model(config)
+    model_cls = build_model(config.model)
     model = model_cls(tokenizer.vocab_size, config)
 
     trainer = Trainer(config, strategy=get_strategy(config.distributed))
