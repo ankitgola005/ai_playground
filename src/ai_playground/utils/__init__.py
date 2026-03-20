@@ -1,6 +1,7 @@
 from ai_playground.utils.utils import (
-    precision_to_dtype,
     set_seed,
+    resolve_device,
+    precision_to_dtype,
     get_git_info,
     setup_progress_bar,
 )
@@ -9,15 +10,13 @@ from ai_playground.utils.strategy import get_strategy
 from ai_playground.utils.norms import get_grad_norm, get_norm_info, get_weight_norm
 from ai_playground.utils.scheduler import build_lr_scheduler
 from ai_playground.utils.data import get_dataset_path, build_data_pipeline
-from ai_playground.utils.load_yaml_config import (
-    ConfigNode,
-    load_yaml_config,
-    config_to_dict,
-)
+from ai_playground.utils.config import load_yaml_config, update_config, config_to_dict
+from ai_playground.utils.paths import resolve_dirs, resolve_run_name
 
 __all__ = [
-    "precision_to_dtype",
     "set_seed",
+    "resolve_device",
+    "precision_to_dtype",
     "build_model",
     "get_dataset_path",
     "get_git_info",
@@ -28,7 +27,9 @@ __all__ = [
     "build_lr_scheduler",
     "build_data_pipeline",
     "setup_progress_bar",
-    "ConfigNode",
     "load_yaml_config",
+    "update_config",
     "config_to_dict",
+    "resolve_dirs",
+    "resolve_run_name",
 ]

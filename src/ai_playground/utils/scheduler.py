@@ -3,11 +3,14 @@ import torch
 from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
-    from ai_playground.configs import TrainerConfigProtocol
+    from ai_playground.configs import LRConfig
 
 
 def build_lr_scheduler(
-    optimizer: torch.optim.Optimizer, config: "TrainerConfigProtocol"
+    optimizer: torch.optim.Optimizer,
+    lr_config: "LRConfig",
+    warmup_steps: int,
+    max_steps: int,
 ) -> torch.optim.lr_scheduler.LambdaLR:
     """
     Build a learning rate scheduler with optional independent warmup.
@@ -31,16 +34,6 @@ def build_lr_scheduler(
     Returns:
         torch.optim.lr_scheduler.LambdaLR: Configured LR scheduler.
     """
-    lr_config = config.lr_config
-    max_steps = int(config.max_steps)
-    warmup_steps = int(config.warmup_steps)
-
-    scheduler = lr_config.get("scheduler", "cosine")
-    min_lr_ratio = float(lr_config.get("min_lr_ratio", 0.1))
-    gamma = float(lr_config.get("exp_gamma", 0.95))
-    power = float(lr_config.get("poly_power", 2.0))
-    cycle_steps = int(lr_config.get("cycle_steps", max_steps))
-    one_cycle_pct = float(lr_config.get("one_cycle_pct", 0.3))
 
     def lr_lambda(step: int) -> float:
         """Compute LR multiplier for the given step."""
@@ -53,33 +46,47 @@ def build_lr_scheduler(
         progress = min(progress, 1.0)
 
         # Compute decay
-        if scheduler == "constant":
+        if lr_config.scheduler == "constant":
             decay = 1.0
-        elif scheduler == "linear_decay":
+        elif lr_config.scheduler == "linear_decay":
             decay = 1.0 - progress
-        elif scheduler == "cosine":
+        elif lr_config.scheduler == "cosine":
             decay = 0.5 * (1.0 + math.cos(math.pi * progress))
-        elif scheduler == "cosine_restart":
-            cycle_pos = (step - warmup_steps) % cycle_steps
-            cycle_progress = cycle_pos / cycle_steps
+        elif lr_config.scheduler == "cosine_restart":
+            assert lr_config.cycle_steps is not None and lr_config.cycle_steps > 0
+            cycle_pos = (step - warmup_steps) % lr_config.cycle_steps
+            cycle_progress = cycle_pos / lr_config.cycle_steps
             decay = 0.5 * (1.0 + math.cos(math.pi * cycle_progress))
-        elif scheduler == "exponential_decay":
-            decay = gamma ** (step - warmup_steps)
-        elif scheduler == "polynomial_decay":
-            decay = (1.0 - progress) ** power
-        elif scheduler == "one_cycle":
-            if progress < one_cycle_pct:
-                cycle_progress = progress / one_cycle_pct
-                decay = min_lr_ratio + (1 - min_lr_ratio) * cycle_progress
+        elif lr_config.scheduler == "exponential_decay":
+            assert lr_config.gamma is not None
+            decay = lr_config.gamma ** (step - warmup_steps)
+        elif lr_config.scheduler == "polynomial_decay":
+            assert lr_config.power is not None
+            decay = (1.0 - progress) ** lr_config.power
+        elif lr_config.scheduler == "one_cycle":
+            assert (
+                lr_config.one_cycle_pct is not None
+                and lr_config.one_cycle_pct > 0
+                and lr_config.min_lr_ratio is not None
+            )
+            if progress < lr_config.one_cycle_pct:
+                cycle_progress = progress / lr_config.one_cycle_pct
+                decay = (
+                    lr_config.min_lr_ratio
+                    + (1 - lr_config.min_lr_ratio) * cycle_progress
+                )
             else:
-                cycle_progress = (progress - one_cycle_pct) / (1 - one_cycle_pct)
+                cycle_progress = (progress - lr_config.one_cycle_pct) / (
+                    1 - lr_config.one_cycle_pct
+                )
                 decay = 1 - cycle_progress
         else:
-            raise ValueError(f"Unknown scheduler: {scheduler}")
+            raise ValueError(f"Unknown scheduler: {lr_config.scheduler}")
 
         # Apply min LR floor for all except constant or exponential
-        if scheduler not in ["constant", "exponential_decay"]:
-            decay = decay * (1.0 - min_lr_ratio) + min_lr_ratio
+        if lr_config.scheduler not in ["constant", "exponential_decay"]:
+            assert lr_config.min_lr_ratio is not None
+            decay = decay * (1.0 - lr_config.min_lr_ratio) + lr_config.min_lr_ratio
 
         return decay
 

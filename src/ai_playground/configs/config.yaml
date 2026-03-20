@@ -2,44 +2,50 @@ data:
   dataset: "shakespeare"
   split: 0.9
   num_workers: 0
+  block_size: 64
 
 model:
-  model_name: ""
+  compile: false
   model_kwargs: {}
 
 trainer:
+  seed: 42
   auto_restart: true
   batch_size: 32
-  max_epochs: 1
-  max_steps: 500
-  val_interval: 50
-  lr: 0.01
-  min_lr_ratio: 0.1
+  eval_batch_size: 32
+  max_epochs: null
+  max_steps: 100
+  val_interval: 10
+  lr_config:
+    scheduler: "constant"
+    lr: 0.01
+    min_lr_ratio: null
+    gamma: null
+    power: null
+    cycle_steps: null
+    one_cycle_pct: null
   betas: [0.9, 0.95]
-  warmup_steps: 100
+  warmup_steps: 10
   weight_decay: 0.1
   grad_clip: 1.0
   precision: "fp16"
-  use_fp16: false
   use_progress_bar: true
   logger: ["tensorboard"]
-  log_dir: "runs/"
   log_interval: 10
+  log_dir: null
+  base_dir: "runs/"
+  run_name: ""
   use_profiler: false
-  profiler_wait: 1
-  profiler_warmup: 1
-  profiler_active: 3
-  profiler_repeat: 2
-  save_path: "checkpoints"
+  profiler_config:
+    wait: 1
+    warmup: 1
+    active: 3
+    repeat: 0
+  ckpt_dir: null
   save_interval: 0
 
-experimental:
-  seed: 42
-  compile: false
-  experiment_name: ""
-
 distributed:
-  device: "cpu"
+  device: "auto"
+  distributed: "single"
   rank: 0
   world_size: 1
-  distributed: "single"
