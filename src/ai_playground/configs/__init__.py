@@ -12,5 +12,6 @@ __all__ = [
     "DataConfigProtocol",
     "DistributedConfigProtocol",
     "ModelConfigProtocol",
+    "TrainerConfigProtocol",
     "ExperimentalConfigProtocol",
 ]

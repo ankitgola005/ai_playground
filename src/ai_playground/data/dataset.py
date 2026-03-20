@@ -3,10 +3,11 @@ import torch
 import random
 import numpy as np
 
-from typing import Tuple, TYPE_CHECKING
+from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
     from ai_playground.configs.config import ConfigProtocol
+    from typing import Tuple
 
 
 class TextDataset(Dataset):
@@ -78,7 +79,7 @@ def build_dataloader(
         worker_init_fn=seed_worker,
         generator=generator,
         drop_last=True,
-        pin_memory=True,  # 🔥 useful for GPU training
+        pin_memory=True,
     )
     return dataloader
 

@@ -1,9 +1,9 @@
 from typing import TYPE_CHECKING
 
-import torch.nn as nn
 from ai_playground.distributed import Parallel
 
 if TYPE_CHECKING:
+    import torch.nn as nn
     from ai_playground.configs.config import DistributedConfigProtocol
 
 

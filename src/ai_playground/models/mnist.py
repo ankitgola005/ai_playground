@@ -1,7 +1,10 @@
-from typing import List
+from typing import TYPE_CHECKING
 import torch
 import torch.nn as nn
-from ai_playground.configs.config import ConfigProtocol
+
+if TYPE_CHECKING:
+    from typing import List
+    from ai_playground.configs.config import ConfigProtocol
 
 
 class MNIST(nn.Module):

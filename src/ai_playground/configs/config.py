@@ -1,9 +1,9 @@
 # Utility for type hints
-from typing import Protocol, Mapping, Sequence, TYPE_CHECKING
-from pathlib import Path
+from typing import TYPE_CHECKING, Protocol
 
 if TYPE_CHECKING:
-    from typing import Tuple
+    from typing import Tuple, Mapping, Sequence
+    from pathlib import Path
 
 
 class DataConfigProtocol(Protocol):

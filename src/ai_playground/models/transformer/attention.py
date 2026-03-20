@@ -31,8 +31,8 @@ class SelfAttention(nn.Module):
             torch.matmul(q, k.transpose(-2, -1)) * self.scale
         )  # (B, T, h) @ (B, h, T) -> (B, T, T)
         atten = atten.masked_fill(
-            ~self.mask[:T, :T], float("-inf")
-        )  # (B, T, T)   # type: ignore
+            ~self.mask[:T, :T], float("-inf")  # type: ignore
+        )  # (B, T, T)
         atten = torch.softmax(atten, dim=-1)  # (B, T, T) Softmax over the k dim
         return atten @ v  # (B, T, T) @ (B, T, h) -> (B, T, h)
 

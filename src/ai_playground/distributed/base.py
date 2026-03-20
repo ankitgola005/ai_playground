@@ -2,10 +2,10 @@ from abc import ABC, abstractmethod
 from typing import TYPE_CHECKING
 
 import torch
-import torch.nn as nn
 import torch.distributed as dist
 
 if TYPE_CHECKING:
+    import torch.nn as nn
     from torch.optim import Optimizer
     from torch.utils.data import DataLoader
     from torch.amp.grad_scaler import GradScaler

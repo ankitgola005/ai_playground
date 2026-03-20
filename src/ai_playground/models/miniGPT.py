@@ -43,23 +43,23 @@ class MiniGPT(nn.Module):
         # Embeddings
         self.embeddings: EmbeddingWrapper = EmbeddingWrapper(
             vocab_size,
-            model_kwargs["block_size"],
-            model_kwargs["n_embed"],
+            int(model_kwargs["block_size"]),
+            int(model_kwargs["n_embed"]),
         )
 
         # Transformer blocks
         self.transformer_blocks: nn.Sequential = nn.Sequential(
             *[
                 TransformerBlock(
-                    embed_dim=model_kwargs["n_embed"],
-                    n_head=model_kwargs["n_head"],
-                    n_kv_head=model_kwargs["n_kv_head"],
-                    block_size=model_kwargs["block_size"],
-                    hidden_dim=model_kwargs["hidden_dim"],
-                    use_flash_attention=model_kwargs["use_flash_attention"],
-                    attn_dropout=model_kwargs["attn_dropout"],
-                    residual_dropout=model_kwargs["residual_dropout"],
-                    ffn_dropout=model_kwargs["ffn_dropout"],
+                    embed_dim=int(model_kwargs["n_embed"]),
+                    n_head=int(model_kwargs["n_head"]),
+                    n_kv_head=int(model_kwargs["n_kv_head"]),
+                    block_size=int(model_kwargs["block_size"]),
+                    hidden_dim=int(model_kwargs["hidden_dim"]),
+                    use_flash_attention=bool(model_kwargs["use_flash_attention"]),
+                    attn_dropout=float(model_kwargs["attn_dropout"]),
+                    residual_dropout=float(model_kwargs["residual_dropout"]),
+                    ffn_dropout=float(model_kwargs["ffn_dropout"]),
                 )
                 for _ in range(int(model_kwargs["n_layer"]))
             ]

@@ -1,7 +1,6 @@
 import torch
 import torch.nn as nn
 from torch.nn import functional as F
-from torch import Tensor
 
 
 class BiGram(nn.Module):
@@ -24,8 +23,8 @@ class BiGram(nn.Module):
         self.tok_emb: nn.Embedding = nn.Embedding(vocab_size, vocab_size)
 
     def forward(
-        self, idx: Tensor, targets: Tensor | None = None
-    ) -> tuple[Tensor, Tensor | None]:
+        self, idx: torch.Tensor, targets: torch.Tensor | None = None
+    ) -> tuple[torch.Tensor, torch.Tensor | None]:
         """
         Forward pass of the model.
 
@@ -37,18 +36,18 @@ class BiGram(nn.Module):
             logits (Tensor): Predicted logits of shape (B, T, C).
             loss (Optional[Tensor]): Cross-entropy loss if targets provided, else None.
         """
-        logits: Tensor = self.tok_emb(idx)
+        logits: torch.Tensor = self.tok_emb(idx)
 
         if targets is None:
-            loss: Tensor | None = None
+            loss: torch.Tensor | None = None
         else:
             B, T, C = logits.shape
-            logits_flat: Tensor = logits.view(B * T, C)
-            targets_flat: Tensor = targets.view(B * T)
+            logits_flat: torch.Tensor = logits.view(B * T, C)
+            targets_flat: torch.Tensor = targets.view(B * T)
             loss = F.cross_entropy(logits_flat, targets_flat)
         return logits, loss
 
-    def generate(self, idx: Tensor, max_new_tokens: int = 1) -> Tensor:
+    def generate(self, idx: torch.Tensor, max_new_tokens: int = 1) -> torch.Tensor:
         """
         Generate new tokens from the model autoregressively.
 
@@ -62,11 +61,11 @@ class BiGram(nn.Module):
         for _ in range(max_new_tokens):
             logits, _ = self(idx)
             # Focus on the last timestep
-            logits_last: Tensor = logits[:, -1, :]  # (B, C)
+            logits_last: torch.Tensor = logits[:, -1, :]  # (B, C)
             # Convert logits to probabilities
-            probs: Tensor = F.softmax(logits_last, dim=-1)  # (B, C)
+            probs: torch.Tensor = F.softmax(logits_last, dim=-1)  # (B, C)
             # Sample the next token
-            idx_next: Tensor = torch.multinomial(probs, num_samples=1)  # (B, 1)
+            idx_next: torch.Tensor = torch.multinomial(probs, num_samples=1)  # (B, 1)
             # Append to the sequence
             idx = torch.cat((idx, idx_next), dim=1)  # (B, T+1)
         return idx
