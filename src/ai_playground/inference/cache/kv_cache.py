@@ -1,9 +1,9 @@
-import torch
 from typing import TYPE_CHECKING
 
 from ai_playground.inference.cache.base_kv_cache import BaseKVCache
 
 if TYPE_CHECKING:
+    import torch
     from typing import Tuple, Iterator
 
 

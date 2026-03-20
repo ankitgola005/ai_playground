@@ -1,59 +1,82 @@
-import yaml
+from typing import TYPE_CHECKING
 from pathlib import Path
+import yaml
 import ai_playground
 
+if TYPE_CHECKING:
+    from typing import Any, Mapping, Sequence
 
-CONFIG_BASE_PATH = yaml_path = Path(ai_playground.__file__).parent / "configs"
+# Base path for all config files
+CONFIG_BASE_PATH: Path = Path(ai_playground.__file__).parent / "configs"
 
 
 class ConfigNode:
     """
-    Simple object wrapper around dict, allows attribute access.
-    Nested dicts are converted recursively to ConfigNode.
+    Wrapper around a dictionary that allows attribute-style access.
+
+    Example:
+        cfg = ConfigNode({"model": {"n_layer": 12}})
+        print(cfg.model.n_layer)  # 12
     """
 
-    def __init__(self, data: dict):
+    def __init__(self, data: Mapping[str, Any]):
         for k, v in data.items():
             if isinstance(v, dict):
                 v = ConfigNode(v)
             setattr(self, k, v)
 
-    def get(self, key, default=None):
+    def get(self, key: str, default: Any = None) -> Any:
+        """Get an attribute, returning default if not found."""
         return getattr(self, key, default)
 
-    def __getitem__(self, key):
+    def __getitem__(self, key: str) -> Any:
+        """Allow dict-style access."""
         return getattr(self, key)
 
-    def __setitem__(self, key, value):
+    def __setitem__(self, key: str, value: Any):
+        """Allow setting attributes via dict-style access."""
         setattr(self, key, value)
 
-    def __repr__(self):
+    def __repr__(self) -> str:
         return f"ConfigNode({self.__dict__})"
 
 
-def load_yaml_config(filename: str) -> "ConfigNode":
+def load_yaml_config(filename: str) -> ConfigNode:
     """
-    Load a YAML file from ai_playground/configs by filename and return a top-level ConfigNode.
+    Load a YAML config file from ai_playground/configs and return a ConfigNode.
+
     Args:
-        filename: Name of the config file relative to ai_playground/configs, e.g. "gpt_config.yaml"
+        filename (str): Name of the YAML file (relative to configs directory), e.g., "gpt_config.yaml"
+
     Returns:
-        ConfigNode: top-level config object
+        ConfigNode: Top-level config object with attribute access.
+
+    Raises:
+        FileNotFoundError: If the file does not exist at the expected path.
     """
-    path = CONFIG_BASE_PATH / filename
+    path: Path = CONFIG_BASE_PATH / filename
     if not path.exists():
         raise FileNotFoundError(f"Config file not found: {path}")
 
     with open(path, "r") as f:
-        cfg_dict = yaml.safe_load(f)
+        cfg_dict: dict = yaml.safe_load(f)
 
     return ConfigNode(cfg_dict)
 
 
-def config_to_dict(obj):
-    """Recursively convert a Protocol-based config to a dict."""
-    if hasattr(obj, "__dict__"):  # objects with attributes
+def config_to_dict(obj: Any) -> Any:
+    """
+    Recursively convert a ConfigNode, or object with __dict__ into a dictionary.
+
+    Args:
+        obj: Object to convert
+
+    Returns:
+        dict or list: Fully converted dictionary/list representation
+    """
+    if hasattr(obj, "__dict__"):
         return {k: config_to_dict(v) for k, v in vars(obj).items()}
-    elif isinstance(obj, (list, tuple)):
+    elif isinstance(obj, (list, tuple, Sequence)):
         return [config_to_dict(v) for v in obj]
     else:
         return obj

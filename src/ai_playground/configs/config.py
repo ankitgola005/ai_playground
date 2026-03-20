@@ -1,6 +1,9 @@
 # Utility for type hints
-from typing import Protocol, Dict, List, Tuple
-from pathlib import Path
+from typing import TYPE_CHECKING, Protocol
+
+if TYPE_CHECKING:
+    from typing import Tuple, Sequence, Dict
+    from pathlib import Path
 
 
 class DataConfigProtocol(Protocol):
@@ -11,7 +14,7 @@ class DataConfigProtocol(Protocol):
 
 class ModelConfigProtocol(Protocol):
     model_name: str
-    model_kwargs: Dict
+    model_kwargs: Dict[str, int | str | float]
 
 
 class TrainerConfigProtocol(Protocol):
@@ -20,23 +23,32 @@ class TrainerConfigProtocol(Protocol):
     max_epochs: int
     max_steps: int
     val_interval: int
+
     lr: float
-    lr_config: dict  # e.g., {"schedule": str, "min_lr_ratio": float, ...}
+    lr_config: Dict[
+        str, int | str | float
+    ]  # e.g., {"schedule": str, "min_lr_ratio": float, ...}
+
     betas: Tuple[float, float]
     warmup_steps: int
     weight_decay: float
     grad_clip: float
+
     precision: str
     use_fp16: bool
+
     use_progress_bar: bool
-    logger: List[str]
+
+    logger: Sequence[str]
     log_dir: str | Path
     log_interval: int
+
     use_profiler: bool
     profiler_wait: int
     profiler_warmup: int
     profiler_active: int
     profiler_repeat: int
+
     save_path: str | Path
     save_interval: int
 

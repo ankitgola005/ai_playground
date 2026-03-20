@@ -1,22 +1,24 @@
-from ai_playground.utils.logger import console_logger, tensorboard_logger
 import json
-from ai_playground.utils.load_yaml_config import config_to_dict
+from typing import TYPE_CHECKING
 
-from typing import TYPE_CHECKING, List
+from ai_playground.utils.logger import console_logger, tensorboard_logger
+from ai_playground.utils.load_yaml_config import config_to_dict
 
 if TYPE_CHECKING:
     from ai_playground.configs.config import ConfigProtocol
     from ai_playground.distributed.base import Parallel
     from ai_playground.utils.logger.base_logger import Logger
+    from typing import List, Dict, Any
 
-BASELINE_METRICS: dict = {
+# Default metric templates
+BASELINE_METRICS: Dict[str, float] = {
     "train_loss": 0.0,
     "val_loss": 0.0,
     "lr": 0.0,
     "tps": 0.0,
 }
 
-FULL_METRICS: dict = {
+FULL_METRICS: Dict[str, float] = {
     "train_loss": 0.0,
     "lr": 0.0,
     "grad_norm": 0.0,
@@ -29,48 +31,98 @@ FULL_METRICS: dict = {
 
 
 class LoggerManager:
+    """
+    Manages multiple loggers in a distributed training setup.
+
+    Handles logging of metrics, hyperparameters, and configuration to all attached loggers,
+    with support for rank-zero-only logging in distributed settings.
+    """
+
     def __init__(
-        self, logger: List[Logger], strategy: Parallel, config: ConfigProtocol
+        self,
+        loggers: List["Logger"],
+        strategy: "Parallel",
+        config: "ConfigProtocol",
     ):
-        self.loggers: List[Logger] = logger
-        self.strategy = strategy
+        """
+        Args:
+            loggers (List[Logger]): List of logger instances to manage.
+            strategy (Parallel): Distributed training strategy to determine rank-zero logging.
+            config (ConfigProtocol): Training configuration object.
+        """
+        self.loggers: List["Logger"] = loggers
+        self.strategy: "Parallel" = strategy
         self.log_frequency: int = config.trainer.log_interval
 
-    def log_config(self, config: ConfigProtocol):
-        cfg = config_to_dict(config)
+    def log_config(self, config: "ConfigProtocol") -> None:
+        """
+        Log the configuration to all loggers and print to console.
+
+        Args:
+            config (ConfigProtocol): Training configuration object.
+        """
+        cfg_dict: Dict[str, Any] = config_to_dict(config)
         print("\n" + "=" * 20 + " ConfigProtocol " + "=" * 20)
-        print(json.dumps(cfg, indent=2))
+        print(json.dumps(cfg_dict, indent=2))
         print("=" * 50 + "\n")
 
         for logger in self.loggers:
             if hasattr(logger, "log_config"):
-                logger.log_config(cfg)  # type: ignore
+                logger.log_config(cfg_dict)  # type: ignore
 
-    def log_metrics(self, metrics: dict, step: int):
+    def log_metrics(self, metrics: Dict[str, float], step: int) -> None:
+        """
+        Log metrics to all attached loggers respecting rank-zero-only settings.
+
+        Args:
+            metrics (Dict[str, float]): Metric name-value pairs.
+            step (int): Current training step.
+        """
         for logger in self.loggers:
             if not logger.rank_zero_only or (
                 self.strategy and self.strategy.is_main_process()
             ):
                 logger.log_metrics(metrics, step)
 
-    def log_hparams(self, params: dict):
+    def log_hparams(self, params: Dict[str, Any]) -> None:
+        """
+        Log hyperparameters to all attached loggers respecting rank-zero-only settings.
+
+        Args:
+            params (Dict[str, Any]): Hyperparameter name-value pairs.
+        """
         for logger in self.loggers:
             if not logger.rank_zero_only or (
                 self.strategy and self.strategy.is_main_process()
             ):
                 logger.log_hparams(params)
 
-    def finalize(self):
+    def finalize(self) -> None:
+        """
+        Finalize all loggers.
+        """
         for logger in self.loggers:
             logger.finalize()
 
 
-def create_loggers(strategy: Parallel, config: ConfigProtocol):
-    logger_configs = config.trainer.logger
-    loggers: List[Logger] = []
-    for logger in logger_configs:
-        if logger == "console":
+def create_loggers(strategy: "Parallel", config: "ConfigProtocol") -> LoggerManager:
+    """
+    Factory function to create a LoggerManager from configuration.
+
+    Args:
+        strategy (Parallel): Distributed training strategy.
+        config (ConfigProtocol): Training configuration object.
+
+    Returns:
+        LoggerManager: Manager containing the requested loggers.
+    """
+    logger_configs: List[str] = list(config.trainer.logger)
+    loggers: List["Logger"] = []
+
+    for logger_name in logger_configs:
+        if logger_name == "console":
             loggers.append(console_logger.ConsoleLogger(config))
-        elif logger == "tensorboard":
+        elif logger_name == "tensorboard":
             loggers.append(tensorboard_logger.TensorBoardLogger(config))
+
     return LoggerManager(loggers, strategy, config)

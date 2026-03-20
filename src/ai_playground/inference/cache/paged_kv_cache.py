@@ -59,8 +59,8 @@ class PagedKVCache(BaseKVCache):
         self.dtype: torch.dtype = dtype
 
         # list of blocks
-        self.blocks_k = []
-        self.blocks_v = []
+        self.blocks_k: List[torch.Tensor] = []
+        self.blocks_v: List[torch.Tensor] = []
 
         # current write state
         self.curr_block_k: torch.Tensor | None = None

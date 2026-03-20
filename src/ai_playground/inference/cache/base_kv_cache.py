@@ -1,8 +1,8 @@
 from abc import ABC, abstractmethod
 from typing import TYPE_CHECKING
-import torch
 
 if TYPE_CHECKING:
+    import torch
     from typing import Tuple, Iterator
 
 

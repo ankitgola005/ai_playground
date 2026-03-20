@@ -8,13 +8,13 @@ import torch
 import torch.nn as nn
 from torch.profiler import profile, ProfilerActivity
 
-from ai_playground.runner.generator import Generator
+from ai_playground.inference.generator import Generator
 from ai_playground.utils.logger.logger_manager import (
     LoggerManager,
     create_loggers,
     BASELINE_METRICS,
 )
-from ai_playground.utils.utils import (
+from ai_playground.utils import (
     precision_to_dtype,
     build_lr_scheduler,
     get_norm_info,
@@ -132,7 +132,7 @@ class Trainer:
                 betas=self.config.trainer.betas,
             )
         )
-        self.lr_scheduler = build_lr_scheduler(self.optimizer, self.config)
+        self.lr_scheduler = build_lr_scheduler(self.optimizer, self.config.trainer)
 
     def _prepare_model(self, model: nn.Module, stage: str = "train"):
         self.strategy.setup_environment(stage=stage)

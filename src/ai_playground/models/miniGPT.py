@@ -1,71 +1,112 @@
+import torch
 import torch.nn as nn
 from torch.nn import functional as F
+from typing import TYPE_CHECKING
 
 from ai_playground.models.transformer.embeddings import EmbeddingWrapper
 from ai_playground.models.transformer.transformer import TransformerBlock
 from ai_playground.inference.cache import KVCache, PagedKVCache
 
-from typing import TYPE_CHECKING
-
 if TYPE_CHECKING:
+    from typing import Optional, List, Tuple
     from ai_playground.configs.config import ConfigProtocol
 
 
 class MiniGPT(nn.Module):
-    def __init__(self, vocab_size: int, config: ConfigProtocol):
-        super().__init__()
+    """
+    MiniGPT: a small GPT-style model with optional KV caching.
 
+    Attributes:
+        embeddings (EmbeddingWrapper): Token and positional embeddings.
+        transformer_blocks (nn.Sequential): Stack of Transformer blocks.
+        layernorm (nn.LayerNorm): Final layer normalization.
+        head (nn.Linear): Linear head projecting to vocab size.
+        use_kv_cache (bool): Whether to use KV caching.
+        kv_cache_max_len (int): Maximum KV cache length.
+        use_paged_kv_cache (bool): Whether to use paged KV cache.
+        paged_kv_cache_block_size (int): Block size for paged KV cache.
+    """
+
+    def __init__(self, vocab_size: int, config: "ConfigProtocol"):
+        """
+        Initialize MiniGPT.
+
+        Args:
+            vocab_size (int): Size of the vocabulary.
+            config (ConfigProtocol): Configuration object with model hyperparameters.
+        """
+        super().__init__()
         self.config = config
 
+        model_kwargs = self.config.model.model_kwargs
+
         # Embeddings
-        self.embeddings = EmbeddingWrapper(
+        self.embeddings: EmbeddingWrapper = EmbeddingWrapper(
             vocab_size,
-            self.config.model.model_kwargs["block_size"],
-            self.config.model.model_kwargs["n_embed"],
+            int(model_kwargs["block_size"]),
+            int(model_kwargs["n_embed"]),
         )
 
         # Transformer blocks
-        self.transformer_blocks = nn.Sequential(
+        self.transformer_blocks: nn.Sequential = nn.Sequential(
             *[
                 TransformerBlock(
-                    embed_dim=self.config.model.model_kwargs["n_embed"],
-                    n_head=self.config.model.model_kwargs["n_head"],
-                    n_kv_head=self.config.model.model_kwargs["n_kv_head"],
-                    block_size=self.config.model.model_kwargs["block_size"],
-                    hidden_dim=self.config.model.model_kwargs["hidden_dim"],
-                    use_flash_attention=self.config.model.model_kwargs[
-                        "use_flash_attention"
-                    ],
-                    attn_dropout=self.config.model.model_kwargs["attn_dropout"],
-                    residual_dropout=self.config.model.model_kwargs["residual_dropout"],
-                    ffn_dropout=self.config.model.model_kwargs["ffn_dropout"],
+                    embed_dim=int(model_kwargs["n_embed"]),
+                    n_head=int(model_kwargs["n_head"]),
+                    n_kv_head=int(model_kwargs["n_kv_head"]),
+                    block_size=int(model_kwargs["block_size"]),
+                    hidden_dim=int(model_kwargs["hidden_dim"]),
+                    use_flash_attention=bool(model_kwargs["use_flash_attention"]),
+                    attn_dropout=float(model_kwargs["attn_dropout"]),
+                    residual_dropout=float(model_kwargs["residual_dropout"]),
+                    ffn_dropout=float(model_kwargs["ffn_dropout"]),
                 )
-                for _ in range(self.config.model.model_kwargs["n_layer"])
+                for _ in range(int(model_kwargs["n_layer"]))
             ]
         )
 
-        # Final Layernorm + Linear head
-        self.layernorm = nn.LayerNorm(self.config.model.model_kwargs["n_embed"])
-        self.head = nn.Linear(
-            self.config.model.model_kwargs["n_embed"], vocab_size, bias=False
+        # Final LN + Linear head
+        self.layernorm: nn.LayerNorm = nn.LayerNorm(int(model_kwargs["n_embed"]))
+        self.head: nn.Linear = nn.Linear(
+            int(model_kwargs["n_embed"]), vocab_size, bias=False
         )
 
-        # KV Cache
-        self.use_kv_cache = self.config.model.model_kwargs["use_kv_cache"]
-        self.kv_cache_max_len = self.config.model.model_kwargs["kv_cache_max_len"]
-        self.use_paged_kv_cache = (
-            self.config.model.model_kwargs["use_paged_kv_cache"] and self.use_kv_cache
+        # KV Cache settings
+        self.use_kv_cache: bool = bool(model_kwargs["use_kv_cache"])
+        self.kv_cache_max_len: int = int(model_kwargs["kv_cache_max_len"])
+        self.use_paged_kv_cache: bool = (
+            bool(model_kwargs["use_paged_kv_cache"]) and self.use_kv_cache
         )
-        self.paged_kv_cache_block_size = self.config.model.model_kwargs[
-            "paged_kv_cache_block_size"
-        ]
+        self.paged_kv_cache_block_size: int = int(
+            model_kwargs["paged_kv_cache_block_size"]
+        )
 
-    def forward(self, idx, targets=None, past_key_values=None, use_cache=False):
+    def forward(
+        self,
+        idx: torch.Tensor,
+        targets: Optional[torch.Tensor] = None,
+        past_key_values: Optional[List] = None,
+        use_cache: bool = False,
+    ) -> Tuple[torch.Tensor, Optional[torch.Tensor], Optional[List]]:
+        """
+        Forward pass of MiniGPT.
+
+        Args:
+            idx (torch.Tensor): Input token indices (B, T).
+            targets (Optional[torch.Tensor]): Target token indices (B, T), for loss computation.
+            past_key_values (Optional[List]): Cached KV pairs from previous tokens.
+            use_cache (bool): Whether to store KV caches.
+
+        Returns:
+            logits (torch.Tensor): Predicted logits (B, T, C).
+            loss (Optional[torch.Tensor]): Cross-entropy loss if targets provided.
+            new_past_key_values (Optional[List]): Updated KV cache if use_cache=True.
+        """
         # Embeddings
-        x = self.embeddings(idx)
+        x: torch.Tensor = self.embeddings(idx)
 
         # Transformer blocks
-        new_past_key_values = []
+        new_past_key_values: List = []
         for i, block in enumerate(self.transformer_blocks):
             pkv = past_key_values[i] if past_key_values is not None else None
             x, present = block(x, past_key_values=pkv, use_cache=use_cache)
@@ -74,40 +115,50 @@ class MiniGPT(nn.Module):
 
         # Final LN + head
         x = self.layernorm(x)
-        logits = self.head(x)
+        logits: torch.Tensor = self.head(x)
 
         # Loss
-        loss = None
+        loss: Optional[torch.Tensor] = None
         if targets is not None:
             B, T, C = logits.shape
-            logits = logits.view(B * T, C)
-            targets = targets.view(B * T)
-            loss = F.cross_entropy(logits, targets)
+            logits_flat = logits.view(B * T, C)
+            targets_flat = targets.view(B * T)
+            loss = F.cross_entropy(logits_flat, targets_flat)
 
         return logits, loss, new_past_key_values if use_cache else None
 
-    def init_kv_cache(self, B: int, max_len: int = 1024, device: str = "cuda"):
-        assert self.use_kv_cache, "Trying to init KV cache, but `use_kv_cache=False`"
+    def init_kv_cache(self, B: int, device: str = "cuda") -> List:
+        """
+        Initialize KV cache for all transformer blocks.
 
-        cache_impl = None
-        _size = 0
-        if self.use_paged_kv_cache:
-            cache_impl = PagedKVCache
-            _size = self.kv_cache_max_len
-        else:
-            cache_impl = KVCache
-            _size = self.paged_kv_cache_block_size
-        caches = []
+        Args:
+            B (int): Batch size.
+            device (str): Device to place the cache on.
 
+        Returns:
+            List: List of KVCache or PagedKVCache instances, one per block.
+        """
+        assert (
+            self.use_kv_cache
+        ), "KV cache initialization requested, but use_kv_cache=False."
+
+        cache_cls = PagedKVCache if self.use_paged_kv_cache else KVCache
+        _size = (
+            self.kv_cache_max_len
+            if self.use_paged_kv_cache
+            else self.paged_kv_cache_block_size
+        )
+
+        caches: List = []
         for block in self.transformer_blocks:
             caches.append(
-                cache_impl(
+                cache_cls(
                     B,
-                    self.config.model.model_kwargs["n_kv_head"],
-                    self.config.model.model_kwargs["n_embed"]
-                    // self.config.model.model_kwargs["n_head"],
+                    int(self.config.model.model_kwargs["n_kv_head"]),
+                    int(self.config.model.model_kwargs["n_embed"])
+                    // int(self.config.model.model_kwargs["n_head"]),
                     _size,
-                    device,
+                    torch.device(device),
                     next(self.parameters()).dtype,
                 )
             )

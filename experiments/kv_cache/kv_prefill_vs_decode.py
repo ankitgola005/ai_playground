@@ -1,14 +1,15 @@
 import matplotlib.pyplot as plt
-from typing import Callable, TYPE_CHECKING
+from typing import TYPE_CHECKING
 import torch
 
-from ai_playground.utils.utils import build_data_pipeline, build_model, get_strategy
+from ai_playground.utils import build_data_pipeline, build_model, get_strategy
 from ai_playground.utils.load_yaml_config import load_yaml_config
-from ai_playground.runner.trainer import Trainer
+from ai_playground.trainer import Trainer
 
 if TYPE_CHECKING:
     from ai_playground.configs.config import ConfigProtocol
     import torch.nn as nn
+    from typing import Callable, List
 
 
 def get_seq(bm: str = "perf"):
@@ -16,6 +17,7 @@ def get_seq(bm: str = "perf"):
     seq_lens += list(range(1, 33281, 512))
     if bm == "perf":
         seq_lens.reverse()
+    seq_lens = [128]
     return seq_lens
 
 
@@ -34,7 +36,7 @@ def benchmark(
     metric_fn: function that receives trainer and returns a dict of metrics
     """
 
-    metrics = {"ctx_len": []}
+    metrics: dict["str", List] = {"ctx_len": []}
 
     # Warmup
     while warmup > 0:
@@ -90,7 +92,7 @@ def memory_metrics(trainer: "Trainer"):
 
 def run_training(config: "ConfigProtocol", metric_fn: Callable, filename: str):
     tokenizer, train_loader, val_loader = build_data_pipeline(config)
-    model = build_model(config)(tokenizer.vocab_size, config)
+    model = build_model(config.model)(tokenizer.vocab_size, config)
     trainer = Trainer(config, strategy=get_strategy(config.distributed))
     seq_lens = get_seq(bm="perf")
     no_kv_metrics = benchmark(
