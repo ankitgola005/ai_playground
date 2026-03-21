@@ -4,46 +4,39 @@ from typing import Tuple, Optional
 from ai_playground.configs import TrainerConfig
 
 
-def resolve_run_name(cfg: TrainerConfig) -> str:
+def resolve_run_name(run_name: str) -> str:
     """
     Resolve run name. Generates timestamp-based name if not provided.
 
     Args:
-        cfg: TrainerConfig
+        str: run_name
 
     Returns:
         str: Resolved run name
     """
-    if cfg.run_name:
-        return cfg.run_name
-
-    return datetime.now().strftime("run_%Y%m%d_%H%M%S")
+    return run_name if run_name else datetime.now().strftime("run_%Y%m%d_%H%M%S")
 
 
-def resolve_dirs(cfg: TrainerConfig) -> Tuple[Optional[Path], Path, Path]:
+def resolve_dirs(cfg: TrainerConfig) -> Tuple[Path, Path, Path]:
     """
-    Resolve run, log, and checkpoint directories.
-
-    Logic:
-        - If log_dir / ckpt_dir provided → use them
-        - Else derive from base_dir + run_name
+    Resolve logging and checkpoint dirs:
 
     Args:
-        cfg: TrainerConfig
+        TrainerConfig
 
-    Returns:
-        (run_dir, log_dir, ckpt_dir)
+    return:
+        Paths run_dir, log_dir, and ckpt_dir
     """
-    run_name = resolve_run_name(cfg)
 
-    run_dir: Optional[Path] = None
-    if cfg.base_dir:
-        run_dir = Path(cfg.base_dir) / run_name
-    assert run_dir is not None
+    # Get base run dir
+    run_dir = Path(cfg.base_dir) / resolve_run_name(cfg.run_name)
 
-    log_dir = cfg.log_dir or (run_dir / "logs")
-    ckpt_dir = cfg.ckpt_dir or (run_dir / "checkpoints")
+    # Resolve log and ckpt dir
+    log_dir = Path(cfg.log_dir) if cfg.log_dir else (run_dir / "logs")
+    ckpt_dir = Path(cfg.ckpt_dir) if cfg.ckpt_dir else (run_dir / "checkpoints")
 
+    # Create dirs
+    run_dir.mkdir(parents=True, exist_ok=True)
     log_dir.mkdir(parents=True, exist_ok=True)
     ckpt_dir.mkdir(parents=True, exist_ok=True)
 

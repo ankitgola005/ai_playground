@@ -13,7 +13,7 @@ from ai_playground.trainer import Trainer
 from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
-    from ai_playground.configs.config import ConfigProtocol
+    from ai_playground.configs.config import Config
     import torch.nn as nn
 
 
@@ -22,7 +22,7 @@ RESULT_DIR.mkdir(parents=True, exist_ok=True)
 
 
 def run_lr_sweep(
-    base_config: ConfigProtocol, schedules: Dict[str, Dict[str, Any]]
+    base_config: Config, schedules: Dict[str, Dict[str, Any]]
 ) -> List[Dict[str, Any]]:
     """Run multiple LR schedules and record validation loss curves.
     Resume if results already exist.

@@ -9,7 +9,7 @@ if TYPE_CHECKING:
     from torch.optim import Optimizer
     from torch.utils.data import DataLoader
     from torch.amp.grad_scaler import GradScaler
-    from ai_playground.configs.config import DistributedConfigProtocol
+    from ai_playground.configs.config import DistributedConfig
     from typing import Optional, Callable, Any
 
 
@@ -18,7 +18,7 @@ class Parallel(ABC):
     Base class for distributed and parallel training strategies.
     """
 
-    def __init__(self, config: "DistributedConfigProtocol"):
+    def __init__(self, config: "DistributedConfig"):
         """
         Initialize the parallel strategy.
 

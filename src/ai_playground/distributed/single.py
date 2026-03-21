@@ -4,7 +4,7 @@ from ai_playground.distributed import Parallel
 
 if TYPE_CHECKING:
     import torch.nn as nn
-    from ai_playground.configs.config import DistributedConfigProtocol
+    from ai_playground.configs import DistributedConfig
 
 
 class SingleDevice(Parallel):
@@ -12,7 +12,7 @@ class SingleDevice(Parallel):
     Single-device training strategy.
     """
 
-    def __init__(self, config: "DistributedConfigProtocol"):
+    def __init__(self, config: "DistributedConfig"):
         """
         Initialize SingleDevice strategy.
 

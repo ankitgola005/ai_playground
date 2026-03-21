@@ -5,6 +5,7 @@ data:
   block_size: 64
 
 model:
+  model_name: ""
   compile: false
   model_kwargs: {}
 

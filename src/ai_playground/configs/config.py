@@ -41,6 +41,7 @@ class DataConfig(BaseModel):
 
 # Model config
 class ModelConfig(BaseModel):
+    model_name: str
     compile: bool
     model_kwargs: Dict[str, int | float | str] = Field(default_factory=dict)
 

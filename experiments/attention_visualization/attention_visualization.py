@@ -7,7 +7,7 @@ import matplotlib.pyplot as plt
 from ai_playground.utils.load_yaml_config import load_yaml_config
 from ai_playground.utils import build_data_pipeline, build_model, get_strategy
 from ai_playground.trainer import Trainer
-from ai_playground.configs.config import ConfigProtocol
+from ai_playground.configs.config import Config
 
 torch.backends.cuda.matmul.allow_tf32 = True
 torch.set_float32_matmul_precision("high")
@@ -92,7 +92,7 @@ def plot_attention(
 
 
 def main() -> None:
-    config: ConfigProtocol = load_yaml_config("gpt_config.yaml")  # type: ignore
+    config: Config = load_yaml_config("gpt_config.yaml")  # type: ignore
 
     tokenizer, train_loader, val_loader = build_data_pipeline(config)
 

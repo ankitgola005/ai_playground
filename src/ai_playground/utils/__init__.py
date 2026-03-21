@@ -10,7 +10,12 @@ from ai_playground.utils.strategy import get_strategy
 from ai_playground.utils.norms import get_grad_norm, get_norm_info, get_weight_norm
 from ai_playground.utils.scheduler import build_lr_scheduler
 from ai_playground.utils.data import get_dataset_path, build_data_pipeline
-from ai_playground.utils.config import load_yaml_config, update_config, config_to_dict
+from ai_playground.utils.config import (
+    load_config,
+    update_config,
+    config_to_dict,
+    preprocess_config,
+)
 from ai_playground.utils.paths import resolve_dirs, resolve_run_name
 
 __all__ = [
@@ -27,9 +32,10 @@ __all__ = [
     "build_lr_scheduler",
     "build_data_pipeline",
     "setup_progress_bar",
-    "load_yaml_config",
+    "load_config",
     "update_config",
     "config_to_dict",
+    "preprocess_config",
     "resolve_dirs",
     "resolve_run_name",
 ]

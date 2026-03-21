@@ -5,6 +5,7 @@ data:
   num_workers: 0
 
 model:
+  model_name: "mnist"
   compile: true
   model_kwargs:
     input_dims: 784

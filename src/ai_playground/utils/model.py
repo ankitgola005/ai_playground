@@ -3,10 +3,10 @@ from typing import TYPE_CHECKING
 if TYPE_CHECKING:
     import torch.nn as nn
     from typing import Type
-    from ai_playground.configs.config import ModelConfigProtocol
+    from ai_playground.configs.config import ModelConfig
 
 
-def build_model(config: "ModelConfigProtocol") -> Type["nn.Module"]:
+def build_model(config: "ModelConfig") -> Type["nn.Module"]:
     """
     Factory function to get a PyTorch model class based on the configuration.
 

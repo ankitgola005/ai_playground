@@ -5,7 +5,7 @@ from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
     from typing import Dict, Any
-    from ai_playground.configs.config import ConfigProtocol
+    from ai_playground.configs.config import Config
 
 
 class Logger(ABC):
@@ -18,7 +18,7 @@ class Logger(ABC):
         log_dir (Path): Directory where logs will be stored.
     """
 
-    def __init__(self, config: "ConfigProtocol"):
+    def __init__(self, config: "Config"):
         """
         Args:
             config (ConfigProtocol): Training configuration object.

@@ -2,27 +2,42 @@ data:
   dataset: "shakespeare"
   split: 0.9
   num_workers: 0
+  block_size: 128
 
 model:
+  model_name: "minigpt"
   compile: true
-  model_name: "bigram"
-  model_kwargs: {}
+  model_kwargs:
+    n_layer: 4
+    n_head: 4
+    n_embed: 256
+    hidden_dim: 1024
+    use_kv_cache: true
+    n_kv_head: 2
+    use_flash_attention: true
+    ffn_dropout: 0.1
+    attn_dropout: 0.1
+    residual_dropout: 0.1
+    use_kv_cache: true
+    kv_cache_max_len: 1024
+    use_paged_kv_cache: true
+    paged_kv_cache_block_size: 128
 
 trainer:
   seed: 42
   auto_restart: true
-  batch_size: 32
+  batch_size: 64
   eval_batch_size: 4
   max_epochs: null
   max_steps: 1000
   val_interval: 100
   lr_config:
     scheduler: "cosine"
-    lr: 0.01
+    lr: 0.0003
     min_lr_ratio: 0.1
   betas: [0.9, 0.95]
   warmup_steps: 100
-  weight_decay: 0.1
+  weight_decay: 0.01
   grad_clip: 1.0
   precision: "fp16"
   use_progress_bar: true
@@ -37,7 +52,7 @@ trainer:
     warmup: 1
     active: 3
     repeat: 0
-  ckpt_path: null
+  ckpt_dir: null
   save_interval: 0
 
 distributed:

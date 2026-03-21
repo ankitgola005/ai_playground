@@ -3,6 +3,8 @@ from pathlib import Path
 import yaml
 import ai_playground
 from ai_playground.configs import Config
+from ai_playground.utils.paths import resolve_dirs
+
 from typing import TypeVar, TYPE_CHECKING
 
 if TYPE_CHECKING:
@@ -14,7 +16,7 @@ T = TypeVar("T", bound=Config)
 CONFIG_BASE_PATH: Path = Path(ai_playground.__file__).parent / "configs"
 
 
-def load_yaml_config(filename: str) -> Config:
+def load_config(filename: str) -> Config:
     """
     Load YAML config and return validated Pydantic Config.
 
@@ -68,3 +70,72 @@ def update_config(cfg: T, updates: Dict[str, Any]) -> T:
 
     new_dict = deep_update(base, updates)
     return type(cfg)(**new_dict)
+
+
+def preprocess_config(config: Config) -> Config:
+    """
+    Preprocess config.
+    1. Resolve log_dir and ckpt_dir based on base_dir and run_name.
+    """
+    run_dir, log_dir, ckpt_dir = resolve_dirs(config.trainer)
+
+    return update_config(
+        config,
+        {
+            "trainer": {
+                "base_dir": run_dir,
+                "log_dir": log_dir,
+                "ckpt_dir": ckpt_dir,
+            }
+        },
+    )
+
+
+def save_config_snapshot(config: Config) -> None:
+    """
+    Persist the resolved config to disk.
+    This should be called after all preprocessing steps (e.g., path resolution,
+    default filling), so the saved config reflects the exact state used for
+    the run.
+    The config is saved as `config.yaml` inside `trainer.log_dir`.
+
+    Args:
+        config: Config object.
+
+    Raises:
+        ValueError: If `trainer.log_dir` is not set.
+        OSError: If the file cannot be written.
+    """
+    if config.trainer.log_dir is None:
+        raise ValueError("Unable to resolve log_dir.")
+    path = config.trainer.log_dir / "config.yaml"
+    with open(path, "w") as f:
+        yaml.safe_dump(config.model_dump(), f)
+
+
+def get_config(filename: str) -> Config:
+    """
+    Load, preprocess, and finalize a config for training.
+
+    Pipeline:
+    1. Load raw YAML config
+    2. Pydantic validation
+    3. Preprocess config: resolve paths
+    4. Save a snapshot of the final config for reproducibility
+
+    Args:
+        filename: Name of the YAML config file.
+
+    Returns:
+        Config object.
+
+    Raises:
+        FileNotFoundError: If config file does not exist.
+        ValidationError: If config is invalid.
+        ValueError: If preprocessing fails (e.g., invalid paths).
+        OSError: If snapshot saving fails.
+    """
+    cfg = load_config(filename=filename)
+    cfg = preprocess_config(config=cfg)
+    save_config_snapshot(config=cfg)
+    return cfg
