@@ -106,7 +106,7 @@ def train_val_split(
     Returns:
         (train_data, val_data)
     """
-    split_idx = len(encoded_data) * split
+    split_idx: int = int(len(encoded_data) * split)
     train_data = encoded_data[:split_idx]
     val_data = encoded_data[split_idx:]
     return train_data, val_data

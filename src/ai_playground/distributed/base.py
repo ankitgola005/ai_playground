@@ -11,7 +11,7 @@ if TYPE_CHECKING:
     from torch.utils.data import DataLoader
     from torch.amp.grad_scaler import GradScaler
     from ai_playground.configs.config import DistributedConfig
-    from typing import Optional, Callable, Any, Literal
+    from typing import Optional, Callable, Any, Literal, cast
 
 
 class Parallel(ABC):
@@ -108,7 +108,7 @@ class Parallel(ABC):
         dt = self._device.type
         if dt not in ("cpu", "cuda"):
             raise ValueError(f"Unsupported device type: {dt}")
-        return dt
+        return cast(Literal["cpu", "cuda"], dt)
 
     def is_distributed(self) -> bool:
         """Check if distributed training is active."""
