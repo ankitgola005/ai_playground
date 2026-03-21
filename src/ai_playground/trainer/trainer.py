@@ -47,9 +47,7 @@ class Trainer:
         self.strategy: Parallel = strategy
 
         self.config: "Config" = config
-        self.set_seed(
-            config.trainer.seed + (self.strategy.world_size * self.strategy.rank)
-        )
+        set_seed(config.trainer.seed + (self.strategy.world_size * self.strategy.rank))
         self.device_type: str = self.strategy.device_type
         self.device: torch.device = self.strategy.device
         self.compile: bool = self.config.model.compile
@@ -64,12 +62,15 @@ class Trainer:
             "cuda", enabled=self.use_amp and self.precision == "fp16"
         )
 
+        self.warmup_steps: int = config.trainer.warmup_steps
         self.max_epochs: int | None = config.trainer.max_epochs
         self.max_steps: int | None = config.trainer.max_steps
         self.save_interval: int = config.trainer.save_interval
         self.val_interval: int = config.trainer.val_interval
         self.log_interval = config.trainer.log_interval
-        self.logger_manager: LoggerManager = create_loggers(self.strategy, config)
+        self.logger_manager: LoggerManager = create_loggers(
+            self.strategy, config.trainer
+        )
         self.logger_metrics: set = set(BASELINE_METRICS)
 
         self.use_progress_bar: bool = config.trainer.use_progress_bar
@@ -89,17 +90,6 @@ class Trainer:
         self.run_name: str = config.trainer.run_name
         self.val_loss_history: List[dict] = []
 
-    def set_seed(self, seed: int = 42):
-        import random
-        import numpy as np
-
-        random.seed(seed)
-        np.random.seed(seed)
-        torch.manual_seed(seed)
-
-        if torch.cuda.is_available():
-            torch.cuda.manual_seed_all(seed)
-
     def configure_optimizer_and_scheduler(self, model: nn.Module):
         decay = []
         no_decay = []
@@ -118,11 +108,16 @@ class Trainer:
                     {"params": decay, "weight_decay": self.config.trainer.weight_decay},
                     {"params": no_decay, "weight_decay": 0.0},
                 ],
-                lr=self.config.trainer.lr,
+                lr=self.config.trainer.lr_config.lr,
                 betas=self.config.trainer.betas,
             )
         )
-        self.lr_scheduler = build_lr_scheduler(self.optimizer, self.config.trainer)
+        self.lr_scheduler = build_lr_scheduler(
+            optimizer=self.optimizer,
+            lr_config=self.config.trainer.lr_config,
+            warmup_steps=self.warmup_steps,
+            max_steps=self.max_steps,
+        )
 
     def _prepare_model(self, model: nn.Module, stage: str = "train"):
         self.strategy.setup_environment(stage=stage)
