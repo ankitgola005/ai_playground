@@ -27,19 +27,31 @@ def set_seed(seed: int = 42) -> None:
         torch.cuda.manual_seed_all(seed)
 
 
-def resolve_device(device: Literal["auto", "cpu", "cuda"]) -> DeviceType:
+def resolve_device(device: Literal["auto", "cpu", "cuda"]) -> Literal["cpu", "cuda"]:
     """
-    Resolve device string into runtime device.
+    Resolve config device.
 
     Args:
-        device: "auto", "cpu", or "cuda"
+        device: Device preference from config.
+            - "auto": Select "cuda" if available, else "cpu"
+            - "cuda": Select "cuda" if available
+            - "cpu": Use CPU
 
     Returns:
-        str: Resolved device string
+        Device string: "cpu" or "cuda"
+
+    Raises:
+        RuntimeError: If "cuda" is requested but CUDA is not available.
     """
     if device == "auto":
         return "cuda" if torch.cuda.is_available() else "cpu"
-    return device
+
+    if device == "cuda":
+        if not torch.cuda.is_available():
+            raise RuntimeError("CUDA requested but not available")
+        return "cuda"
+
+    return "cpu"
 
 
 def precision_to_dtype(precision: str) -> torch.dtype:

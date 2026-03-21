@@ -6,7 +6,7 @@ import time
 
 import torch
 import torch.nn as nn
-from torch.profiler import profile, ProfilerActivity
+from torch.profiler.profiler import profile as Profiler
 
 from ai_playground.inference.generator import Generator
 from ai_playground.utils.logger.logger_manager import (
@@ -19,20 +19,21 @@ from ai_playground.utils import (
     build_lr_scheduler,
     get_norm_info,
     setup_progress_bar,
+    get_profiler,
 )
 
 if TYPE_CHECKING:
     from torch.utils.data import DataLoader
     from torch.optim import Optimizer, lr_scheduler
     from tqdm import tqdm
-    from ai_playground.configs.config import ConfigProtocol
+    from ai_playground.configs.config import Config
     from ai_playground.distributed.base import Parallel
 
 
 class Trainer:
     def __init__(
         self,
-        config: "ConfigProtocol",
+        config: "Config",
         strategy: Parallel,
         optimizer: Optional[Optimizer] = None,
     ):
@@ -45,13 +46,13 @@ class Trainer:
 
         self.strategy: Parallel = strategy
 
-        self.config: "ConfigProtocol" = config
+        self.config: "Config" = config
         self.set_seed(
-            config.experimental.seed + (self.strategy.world_size * self.strategy.rank)
+            config.trainer.seed + (self.strategy.world_size * self.strategy.rank)
         )
         self.device_type: str = self.strategy.device_type
         self.device: torch.device = self.strategy.device
-        self.compile: bool = self.config.experimental.compile
+        self.compile: bool = self.config.model.compile
 
         self.precision: str = config.trainer.precision
         self.precision_dtype: torch.dtype = precision_to_dtype(self.precision)
@@ -63,8 +64,8 @@ class Trainer:
             "cuda", enabled=self.use_amp and self.precision == "fp16"
         )
 
-        self.max_epochs: int = config.trainer.max_epochs
-        self.max_steps: int = config.trainer.max_steps
+        self.max_epochs: int | None = config.trainer.max_epochs
+        self.max_steps: int | None = config.trainer.max_steps
         self.save_interval: int = config.trainer.save_interval
         self.val_interval: int = config.trainer.val_interval
         self.log_interval = config.trainer.log_interval
@@ -76,27 +77,16 @@ class Trainer:
         self.progress_bar_metrics = BASELINE_METRICS if self.use_progress_bar else None
 
         self.use_profiler: bool = config.trainer.use_profiler
-        self.profiler: Optional[profile] = None
+        self.profiler: Optional[Profiler] = None
         if self.use_profiler:
-            activities = (
-                [ProfilerActivity.CPU, ProfilerActivity.CUDA]
-                if self.device_type == "cuda"
-                else [ProfilerActivity.CPU]
-            )
-            self.profiler = profile(
-                activities=activities,
-                record_shapes=True,
-                with_stack=True,
-                profile_memory=True,
-                schedule=torch.profiler.schedule(
-                    wait=config.trainer.profiler_wait,
-                    warmup=config.trainer.profiler_warmup,
-                    active=config.trainer.profiler_active,
-                    repeat=config.trainer.profiler_repeat,
-                ),
+            assert self.config.trainer.log_dir is not None
+            self.profiler = get_profiler(
+                self.config.trainer.profiler_config,
+                device_type=self.strategy.device_type,
+                log_dir=self.config.trainer.log_dir,
             )
 
-        self.experiment_name: str = config.experimental.experiment_name
+        self.run_name: str = config.trainer.run_name
         self.val_loss_history: List[dict] = []
 
     def set_seed(self, seed: int = 42):

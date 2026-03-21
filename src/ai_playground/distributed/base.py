@@ -3,6 +3,7 @@ from typing import TYPE_CHECKING
 
 import torch
 import torch.distributed as dist
+from ai_playground.utils import resolve_device
 
 if TYPE_CHECKING:
     import torch.nn as nn
@@ -10,7 +11,7 @@ if TYPE_CHECKING:
     from torch.utils.data import DataLoader
     from torch.amp.grad_scaler import GradScaler
     from ai_playground.configs.config import DistributedConfig
-    from typing import Optional, Callable, Any
+    from typing import Optional, Callable, Any, Literal
 
 
 class Parallel(ABC):
@@ -29,10 +30,7 @@ class Parallel(ABC):
         Raises:
             ValueError: If 'cuda' is specified but not available.
         """
-        device = config.device
-        if device == "cuda" and not torch.cuda.is_available():
-            raise ValueError("CUDA is not available, but 'cuda' device was specified.")
-
+        device: Literal["cpu", "cuda"] = resolve_device(config.device)
         self._device: torch.device = torch.device(device)
         self.rank: int = 0
         self.world_size: int = config.world_size
@@ -99,9 +97,18 @@ class Parallel(ABC):
         self._device = device
 
     @property
-    def device_type(self) -> str:
-        """Return the type of device (e.g., 'cuda' or 'cpu')."""
-        return self._device.type
+    def device_type(self) -> Literal["cpu", "cuda"]:
+        """
+        Return the type of device ('cpu' or 'cuda').
+
+        Raises:
+            ValueError: for unsupported device type
+        """
+
+        dt = self._device.type
+        if dt not in ("cpu", "cuda"):
+            raise ValueError(f"Unsupported device type: {dt}")
+        return dt
 
     def is_distributed(self) -> bool:
         """Check if distributed training is active."""

@@ -1,12 +1,15 @@
 # ai_playground/configs/config.py
 
 from pydantic import BaseModel, Field, model_validator
-from typing import Dict, Tuple, Sequence, Literal
+from typing import Dict, Tuple, Sequence, Literal, Any
 from pathlib import Path
 
 
 # Profiler Config
 class ProfilerConfig(BaseModel):
+    record_shapes: bool = Field(default=False)
+    with_stack: bool = Field(default=True)
+    profile_memory: bool = Field(default=True)
     wait: int = Field(ge=0)
     warmup: int = Field(ge=0)
     active: int = Field(ge=0)
@@ -43,7 +46,7 @@ class DataConfig(BaseModel):
 class ModelConfig(BaseModel):
     model_name: str
     compile: bool
-    model_kwargs: Dict[str, int | float | str] = Field(default_factory=dict)
+    model_kwargs: Dict[str, bool | int | float] = Field(default_factory=dict)
 
 
 # Trainer config

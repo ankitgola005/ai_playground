@@ -1,5 +1,6 @@
 from copy import deepcopy
 from pathlib import Path
+from pydantic import BaseModel
 import yaml
 import ai_playground
 from ai_playground.configs import Config
@@ -34,7 +35,7 @@ def load_config(filename: str) -> Config:
     return Config(**cfg_dict)
 
 
-def config_to_dict(cfg: Config) -> Dict[str, Any]:
+def config_to_dict(cfg: BaseModel) -> Dict[str, Any]:
     """
     Convert Pydantic config to a plain Python dictionary.
 

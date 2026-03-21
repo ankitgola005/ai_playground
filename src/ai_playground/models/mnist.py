@@ -4,7 +4,7 @@ import torch.nn as nn
 
 if TYPE_CHECKING:
     from typing import List
-    from ai_playground.configs.config import ConfigProtocol
+    from ai_playground.configs import ModelConfig
 
 
 class MNIST(nn.Module):
@@ -18,7 +18,7 @@ class MNIST(nn.Module):
     - dropout: float, dropout probability (0 = no dropout)
     """
 
-    def __init__(self, config: ConfigProtocol):
+    def __init__(self, model_config: ModelConfig):
         """
         Initialize the MNIST model.
 
@@ -27,7 +27,7 @@ class MNIST(nn.Module):
         """
         super().__init__()
 
-        model_kwargs = config.model.model_kwargs
+        model_kwargs = model_config.model_kwargs
         dims = (
             [model_kwargs["input_dims"]]
             + model_kwargs["hidden_dims"]

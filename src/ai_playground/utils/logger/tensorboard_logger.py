@@ -5,7 +5,7 @@ from ai_playground.utils.logger import Logger
 
 if TYPE_CHECKING:
     from typing import Dict, Any
-    from ai_playground.configs import ConfigProtocol
+    from ai_playground.configs import TrainerConfig
 
 
 class TensorBoardLogger(Logger):
@@ -13,7 +13,7 @@ class TensorBoardLogger(Logger):
     TensorBoard Logger.
     """
 
-    def __init__(self, config: "ConfigProtocol") -> None:
+    def __init__(self, config: "TrainerConfig") -> None:
         """
         Initialize the TensorBoard logger.
 

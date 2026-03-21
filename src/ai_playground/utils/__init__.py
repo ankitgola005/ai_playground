@@ -17,6 +17,7 @@ from ai_playground.utils.config import (
     preprocess_config,
 )
 from ai_playground.utils.paths import resolve_dirs, resolve_run_name
+from ai_playground.utils.profiler import get_profiler
 
 __all__ = [
     "set_seed",
@@ -38,4 +39,5 @@ __all__ = [
     "preprocess_config",
     "resolve_dirs",
     "resolve_run_name",
+    "get_profiler",
 ]
