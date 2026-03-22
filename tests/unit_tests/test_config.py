@@ -128,3 +128,39 @@ def test_full_config_dynamic_update():
     # update block size
     cfg.data.block_size = 256
     assert cfg.data.block_size == 256
+
+
+def test_trainer_config_path_validation():
+    with pytest.raises(ValueError):
+        TrainerConfig(
+            seed=42,
+            auto_restart=True,
+            batch_size=64,
+            eval_batch_size=4,
+            max_steps=1000,
+            val_interval=100,
+            lr_config=LRConfig(scheduler="constant", lr=0.0003),
+            betas=(0.9, 0.95),
+            warmup_steps=100,
+            weight_decay=0.01,
+            grad_clip=1.0,
+            precision="fp16",
+            use_progress_bar=True,
+            logger=["tensorboard"],
+            log_interval=10,
+            log_dir=Path("runs/logs"),
+            base_dir=None,
+            run_name="experiment",
+            use_profiler=True,
+            profiler_config=ProfilerConfig(
+                record_shapes=False,
+                with_stack=True,
+                profile_memory=True,
+                wait=1,
+                warmup=1,
+                active=3,
+                repeat=0,
+            ),
+            ckpt_dir=Path("runs/ckpt"),
+            save_interval=10,
+        )

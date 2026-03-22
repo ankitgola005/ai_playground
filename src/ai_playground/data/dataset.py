@@ -29,7 +29,7 @@ class TextDataset(Dataset):
         self.block_size: int = block_size
 
     def __len__(self) -> int:
-        return self.data.size(0) - self.block_size
+        return max(0, len(self.data) - self.block_size)
 
     def __getitem__(self, idx: int) -> Tuple[torch.Tensor, torch.Tensor]:
         """

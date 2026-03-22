@@ -44,12 +44,15 @@ class DDParallel(Parallel):
         Args:
             trainer_fn (Callable): Training function to execute in each process.
         """
-        mp.spawn(  # type: ignore
-            self._worker_entry,
-            args=(self, trainer_fn, args, kwargs),
-            nprocs=self.world_size,
-            join=True,
-        )
+        if self.world_size == 1:
+            trainer_fn(*args, **kwargs)
+        else:
+            mp.spawn(  # type: ignore
+                self._worker_entry,
+                args=(self, trainer_fn, args, kwargs),
+                nprocs=self.world_size,
+                join=True,
+            )
 
     @staticmethod
     def _worker_entry(

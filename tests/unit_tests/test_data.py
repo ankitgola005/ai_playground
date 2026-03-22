@@ -123,3 +123,15 @@ def test_seed_worker_reproducible():
 
     assert a == c
     assert b == d
+
+
+def test_text_dataset_block_size_ge_data_length():
+    # block_size >= data length
+    data = torch.arange(2, dtype=torch.long)
+    ds = TextDataset(data, block_size=2)
+    assert len(ds) == 0
+
+    # empty data
+    data_empty = torch.tensor([], dtype=torch.long)
+    ds_empty = TextDataset(data_empty, block_size=2)
+    assert len(ds_empty) == 0

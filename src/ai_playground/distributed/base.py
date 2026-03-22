@@ -100,15 +100,8 @@ class Parallel(ABC):
     def device_type(self) -> Literal["cpu", "cuda"]:
         """
         Return the type of device ('cpu' or 'cuda').
-
-        Raises:
-            ValueError: for unsupported device type
         """
-
-        dt = self._device.type
-        if dt not in ("cpu", "cuda"):
-            raise ValueError(f"Unsupported device type: {dt}")
-        return cast(Literal["cpu", "cuda"], dt)
+        return cast(Literal["cpu", "cuda"], self._device.type)
 
     def is_distributed(self) -> bool:
         """Check if distributed training is active."""
