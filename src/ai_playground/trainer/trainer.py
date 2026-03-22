@@ -5,6 +5,7 @@ import time
 import torch
 import torch.nn as nn
 from torch.amp.grad_scaler import GradScaler
+import warnings
 
 from ai_playground.inference.generator import Generator
 from ai_playground.utils.logger.logger_manager import (
@@ -21,6 +22,7 @@ from ai_playground.utils import (
     get_profiler,
     save_checkpoint,
     load_checkpoint,
+    create_infinite_loader,
 )
 
 if TYPE_CHECKING:
@@ -64,7 +66,6 @@ class Trainer:
         )
 
         self.warmup_steps: int = config.trainer.warmup_steps
-        self.max_epochs: int | None = config.trainer.max_epochs
         self.max_steps: int = config.trainer.max_steps
         self.save_interval: int = config.trainer.save_interval
         self.val_interval: int = config.trainer.val_interval
@@ -178,57 +179,41 @@ class Trainer:
             # Train
             profiler_context = self.profiler if self.profiler else nullcontext()
             with profiler_context:
-                for epoch in range(self.max_epochs):
-                    if self._should_stop():
-                        break
+                model.train()
+                train_iter = create_infinite_loader(train_dataloader)
 
-                    model.train()
-                    self._train_one_epoch(
-                        model,
-                        self.optimizer,
-                        self.lr_scheduler,
-                        train_dataloader,
-                        val_dataloader,
+                while not self._should_stop():
+                    xb, yb = next(train_iter)
+
+                    if self.strategy.device_type == "cuda":
+                        torch.cuda.synchronize()
+                    start = time.perf_counter()
+
+                    # Forward and backward pass
+                    logits, loss = self._train_step(
+                        model, xb, yb, self.optimizer, self.lr_scheduler
                     )
+
+                    if self.strategy.device_type == "cuda":
+                        torch.cuda.synchronize()
+                    self.step_time_accumulator += time.perf_counter() - start
+                    self.tokens_accumulator += xb.numel()
+
+                    # Profiling
+                    if self.profiler is not None:
+                        self.profiler.step()
+
+                    # Logging
+                    self._maybe_log(model, self.lr_scheduler, loss)
+
+                    # Validation
+                    self._maybe_validate(model, val_dataloader)
+
+                    # Checkpointing
+                    self._maybe_checkpoint(model)
+
         finally:
             self._cleanup()
-
-    def _train_one_epoch(
-        self,
-        model: nn.Module,
-        optimizer: Optimizer,
-        scheduler: lr_scheduler.LambdaLR,
-        train_dataloader: DataLoader,
-        val_dataloader: Optional[DataLoader],
-    ):
-        for xb, yb in train_dataloader:
-            if self._should_stop():
-                break
-
-            if self.strategy.device_type == "cuda":
-                torch.cuda.synchronize()
-            start = time.perf_counter()
-
-            # Forward and backward pass
-            logits, loss = self._train_step(model, xb, yb, optimizer, scheduler)
-
-            if self.strategy.device_type == "cuda":
-                torch.cuda.synchronize()
-            self.step_time_accumulator += time.perf_counter() - start
-            self.tokens_accumulator += xb.numel()
-
-            # Profiling
-            if self.profiler is not None:
-                self.profiler.step()
-
-            # Logging
-            self._maybe_log(model, scheduler, loss)
-
-            # Validation
-            self._maybe_validate(model, val_dataloader)
-
-            # Checkpointing
-            self._maybe_checkpoint(model)
 
     def _train_step(
         self,

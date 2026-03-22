@@ -28,7 +28,6 @@ trainer:
   auto_restart: true
   batch_size: 64
   eval_batch_size: 4
-  max_epochs: null
   max_steps: 1000
   val_interval: 100
   lr_config:

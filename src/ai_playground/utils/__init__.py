@@ -9,7 +9,11 @@ from ai_playground.utils.model import build_model
 from ai_playground.utils.strategy import get_strategy
 from ai_playground.utils.norms import get_grad_norm, get_norm_info, get_weight_norm
 from ai_playground.utils.scheduler import build_lr_scheduler
-from ai_playground.utils.data import get_dataset_path, build_data_pipeline
+from ai_playground.utils.data import (
+    get_dataset_path,
+    build_data_pipeline,
+    create_infinite_loader,
+)
 from ai_playground.utils.config import (
     load_config,
     update_config,
@@ -31,6 +35,7 @@ __all__ = [
     "precision_to_dtype",
     "build_model",
     "get_dataset_path",
+    "create_infinite_loader",
     "get_git_info",
     "get_grad_norm",
     "get_norm_info",

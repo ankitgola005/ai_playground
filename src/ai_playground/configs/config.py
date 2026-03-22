@@ -56,7 +56,6 @@ class TrainerConfig(BaseModel):
     auto_restart: bool
     batch_size: int = Field(gt=0)
     eval_batch_size: int | None = Field(default=None, gt=0)
-    max_epochs: int | None = Field(default=None, gt=0)
     max_steps: int = Field(ge=0)
     val_interval: int = Field(ge=0)
 
@@ -87,14 +86,6 @@ class TrainerConfig(BaseModel):
     # Checkpointing
     ckpt_dir: Path | None = None
     save_interval: int = Field(ge=0)
-
-    @model_validator(mode="after")
-    def check_train_limits(self):
-        if self.max_epochs is not None and self.max_steps is not None:
-            raise ValueError("Use either max_epochs OR max_steps, not both")
-        if self.max_epochs is None and self.max_steps is None:
-            raise ValueError("One of max_epochs or max_steps must be set")
-        return self
 
     @model_validator(mode="after")
     def check_paths(self):

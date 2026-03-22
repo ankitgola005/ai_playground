@@ -82,3 +82,9 @@ def build_data_pipeline(
     )
 
     return tokenizer, train_loader, val_loader
+
+
+def create_infinite_loader(dl):
+    while True:
+        for batch in dl:
+            yield batch
