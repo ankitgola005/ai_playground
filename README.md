@@ -6,12 +6,24 @@ Experiments with transformers, training systems, and distributed training.
 
 ## Repository Structure
 
-- `configs/` -- experiment configs
-- `models/` -- model architectures
-- `distributed/` -- distributed strategies
-- `utils/` -- utility functions
-- `trainer.py` -- training loop
-- `train.py` -- running example
+```
+ai_playground/
+├─ LICENSE                       # Project license
+├─ README.md                     # README
+├─ datasets/                     # Datasets for training
+├─ experiments/                  # Experiment results
+├─ src/                          # Source dir.
+│  └─ ai_playground/
+│     ├─ configs/                # Experiment configs
+│     ├─ data/                   # Dataset utilities
+│     ├─ distributed/            # Distributed strategies
+│     ├─ inference/              # Inference utilities
+│     ├─ models/                 # Model architectures
+│     ├─ trainer/                # Trainer
+│     └─ utils/                  # Utility functions
+├─ tests/                        # Unit tests
+└─ setup.py                      # Python package setup
+```
 
 ---
 
