@@ -88,7 +88,6 @@ def build_dataloader(
         worker_init_fn=seed_worker,
         generator=generator,
         drop_last=drop_last,
-        pin_memory=torch.cuda.is_available(),
     )
     return dataloader
 
