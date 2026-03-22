@@ -1,7 +1,7 @@
 # ai_playground/configs/config.py
 
 from pydantic import BaseModel, Field, model_validator
-from typing import Dict, Tuple, Sequence, Literal, Any
+from typing import Dict, Tuple, Sequence, Literal
 from pathlib import Path
 
 
