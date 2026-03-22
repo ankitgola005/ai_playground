@@ -21,7 +21,7 @@ from ai_playground.utils.config import (
     preprocess_config,
     get_config,
 )
-from ai_playground.utils.paths import resolve_dirs, resolve_run_name
+from ai_playground.utils.paths import resolve_dirs, resolve_run_name, convert_paths
 from ai_playground.utils.profiler import get_profiler
 from ai_playground.utils.checkpointing import (
     save_checkpoint,
@@ -51,6 +51,7 @@ __all__ = [
     "preprocess_config",
     "resolve_dirs",
     "resolve_run_name",
+    "convert_paths",
     "get_profiler",
     "save_checkpoint",
     "load_checkpoint",

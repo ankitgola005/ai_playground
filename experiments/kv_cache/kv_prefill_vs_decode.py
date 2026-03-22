@@ -3,11 +3,11 @@ from typing import TYPE_CHECKING
 import torch
 
 from ai_playground.utils import build_data_pipeline, build_model, get_strategy
-from ai_playground.utils.load_yaml_config import load_yaml_config
+from ai_playground.utils import get_config
 from ai_playground.trainer import Trainer
 
 if TYPE_CHECKING:
-    from ai_playground.configs.config import ConfigProtocol
+    from ai_playground.configs.config import Config
     import torch.nn as nn
     from typing import Callable, List
 
@@ -90,9 +90,13 @@ def memory_metrics(trainer: "Trainer"):
     return {"gpu_mem_mb": torch.cuda.max_memory_allocated() / (1024**2)}
 
 
-def run_training(config: "ConfigProtocol", metric_fn: Callable, filename: str):
-    tokenizer, train_loader, val_loader = build_data_pipeline(config)
-    model = build_model(config.model)(tokenizer.vocab_size, config)
+def run_training(config: "Config", metric_fn: Callable, filename: str):
+    tokenizer, train_loader, val_loader = build_data_pipeline(
+        config.data, config.trainer.batch_size, config.trainer.seed
+    )
+    model = build_model(config.model)(
+        config.model, tokenizer.vocab_size, config.data.block_size
+    )
     trainer = Trainer(config, strategy=get_strategy(config.distributed))
     seq_lens = get_seq(bm="perf")
     no_kv_metrics = benchmark(
@@ -148,7 +152,7 @@ def plot_metrics(metrics_kv, metrics_nokv, filename: str):
 
 
 def main():
-    config: "ConfigProtocol" = load_yaml_config("gpt_config.yaml")  # type: ignore
+    config: "Config" = get_config("minigpt_config.yaml")
     strategy = get_strategy(config.distributed)
 
     # --- Timing benchmark ---

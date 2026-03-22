@@ -2,7 +2,7 @@ import json
 from typing import TYPE_CHECKING
 
 from ai_playground.utils.logger import console_logger, tensorboard_logger
-from ai_playground.utils import config_to_dict
+from ai_playground.utils import config_to_dict, convert_paths
 
 if TYPE_CHECKING:
     from ai_playground.configs.config import TrainerConfig
@@ -61,14 +61,14 @@ class LoggerManager:
         Args:
             config (ConfigProtocol): Training configuration object.
         """
-        cfg_dict: Dict[str, Any] = config_to_dict(config)
+        cfg_dict: Dict[str, Any] = convert_paths(config_to_dict(config))
         print("\n" + "=" * 20 + " ConfigProtocol " + "=" * 20)
         print(json.dumps(cfg_dict, indent=2))
         print("=" * 50 + "\n")
 
         for logger in self.loggers:
             if hasattr(logger, "log_config"):
-                logger.log_config(cfg_dict)  # type: ignore
+                logger.log_config(cfg_dict)
 
     def log_metrics(self, metrics: Dict[str, float], step: int) -> None:
         """

@@ -4,7 +4,7 @@ from pydantic import BaseModel
 import yaml
 import ai_playground
 from ai_playground.configs import Config
-from ai_playground.utils.paths import resolve_dirs
+from ai_playground.utils.paths import resolve_dirs, convert_paths
 
 from typing import TypeVar, TYPE_CHECKING
 
@@ -109,9 +109,12 @@ def save_config_snapshot(config: Config) -> None:
     """
     if config.trainer.log_dir is None:
         raise ValueError("Unable to resolve log_dir.")
+
     path = config.trainer.log_dir / "config.yaml"
+    cfg_dict = convert_paths(config.model_dump())
+
     with open(path, "w") as f:
-        yaml.safe_dump(config.model_dump(), f)
+        yaml.safe_dump(cfg_dict, f)
 
 
 def get_config(filename: str) -> Config:

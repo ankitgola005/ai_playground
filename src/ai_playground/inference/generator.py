@@ -18,7 +18,6 @@ class Generator:
         prompts,
         max_tokens=500,
         use_cache=True,
-        max_cache_len=256,
     ):
         self.time_dict_reset()
         self.time_dict["ctx_len"] = len(prompts[0])
@@ -49,7 +48,6 @@ class Generator:
             if use_cache:
                 past_key_values = model.init_kv_cache(
                     B,
-                    max_cache_len,
                     device=self.device,
                 )
                 # Prefill

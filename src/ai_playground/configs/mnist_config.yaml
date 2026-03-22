@@ -28,7 +28,7 @@ trainer:
   warmup_steps: 100
   weight_decay: 0.01
   grad_clip: 1.0
-  precision: "fp16"
+  precision: "bf16"
   use_progress_bar: true
   logger: ["tensorboard"]
   log_interval: 10

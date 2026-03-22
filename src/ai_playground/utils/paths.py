@@ -41,3 +41,14 @@ def resolve_dirs(cfg: TrainerConfig) -> Tuple[Path, Path, Path]:
     ckpt_dir.mkdir(parents=True, exist_ok=True)
 
     return run_dir, log_dir, ckpt_dir
+
+
+def convert_paths(obj):
+    if isinstance(obj, dict):
+        return {k: convert_paths(v) for k, v in obj.items()}
+    elif isinstance(obj, list):
+        return [convert_paths(x) for x in obj]
+    elif isinstance(obj, Path):
+        return str(obj)
+    else:
+        return obj

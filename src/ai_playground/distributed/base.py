@@ -1,5 +1,5 @@
 from abc import ABC, abstractmethod
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, cast, Literal
 
 import torch
 import torch.distributed as dist
@@ -11,7 +11,7 @@ if TYPE_CHECKING:
     from torch.utils.data import DataLoader
     from torch.amp.grad_scaler import GradScaler
     from ai_playground.configs.config import DistributedConfig
-    from typing import Optional, Callable, Any, Literal, cast
+    from typing import Optional, Callable, Any
 
 
 class Parallel(ABC):

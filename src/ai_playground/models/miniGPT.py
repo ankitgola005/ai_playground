@@ -27,7 +27,7 @@ class MiniGPT(nn.Module):
         paged_kv_cache_block_size (int): Block size for paged KV cache.
     """
 
-    def __init__(self, vocab_size: int, model_config: "ModelConfig"):
+    def __init__(self, model_config: "ModelConfig", vocab_size: int, block_size: int):
         """
         Initialize MiniGPT.
 
@@ -41,7 +41,7 @@ class MiniGPT(nn.Module):
         # Embeddings
         self.embeddings: EmbeddingWrapper = EmbeddingWrapper(
             vocab_size,
-            int(self.model_config.model_kwargs["block_size"]),
+            block_size,
             int(self.model_config.model_kwargs["n_embed"]),
         )
 
@@ -52,7 +52,7 @@ class MiniGPT(nn.Module):
                     embed_dim=int(self.model_config.model_kwargs["n_embed"]),
                     n_head=int(self.model_config.model_kwargs["n_head"]),
                     n_kv_head=int(self.model_config.model_kwargs["n_kv_head"]),
-                    block_size=int(self.model_config.model_kwargs["block_size"]),
+                    block_size=block_size,
                     hidden_dim=int(self.model_config.model_kwargs["hidden_dim"]),
                     use_flash_attention=bool(
                         self.model_config.model_kwargs["use_flash_attention"]

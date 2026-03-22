@@ -403,7 +403,6 @@ class Trainer:
             prompts=prompts,
             max_tokens=max_tokens,
             use_cache=use_cache,
-            max_cache_len=max_cache_len,
         )
 
     def _unwrap_model(self, model):

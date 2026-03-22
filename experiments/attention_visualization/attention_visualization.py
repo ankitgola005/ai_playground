@@ -4,7 +4,7 @@ import torch
 from torch import Tensor, nn
 import matplotlib.pyplot as plt
 
-from ai_playground.utils.load_yaml_config import load_yaml_config
+from ai_playground.utils import get_config
 from ai_playground.utils import build_data_pipeline, build_model, get_strategy
 from ai_playground.trainer import Trainer
 from ai_playground.configs.config import Config
@@ -92,9 +92,11 @@ def plot_attention(
 
 
 def main() -> None:
-    config: Config = load_yaml_config("gpt_config.yaml")  # type: ignore
+    config: Config = get_config("minigpt_config.yaml")
 
-    tokenizer, train_loader, val_loader = build_data_pipeline(config)
+    tokenizer, train_loader, val_loader = build_data_pipeline(
+        config.data, config.trainer.batch_size, config.trainer.seed
+    )
 
     # Depth sweep
     layer_sweep = [4, 12, 24, 40]
@@ -110,8 +112,9 @@ def main() -> None:
         print(f"\nRunning experiment with n_layer = {n_layer}")
         config.model.model_kwargs["n_layer"] = n_layer
         model_cls = build_model(config.model)
-        model: nn.Module = model_cls(tokenizer.vocab_size, config)
-        model = torch.compile(model)  # type: ignore
+        model: nn.Module = model_cls(
+            config.model, tokenizer.vocab_size, config.data.block_size
+        )
         trainer = Trainer(config, strategy=get_strategy(config.distributed))
         trainer.fit(model, train_loader, val_loader)
 
