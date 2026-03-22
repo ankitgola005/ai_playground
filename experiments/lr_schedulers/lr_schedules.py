@@ -6,7 +6,7 @@ from typing import Any, Dict, List
 import matplotlib.pyplot as plt
 
 import torch
-from ai_playground.utils.load_yaml_config import load_yaml_config
+from ai_playground.utils.config import get_config
 from ai_playground.utils import build_data_pipeline, build_model, get_strategy
 from ai_playground.trainer import Trainer
 
@@ -50,7 +50,7 @@ def run_lr_sweep(
         config = copy.deepcopy(base_config)
         config.trainer.lr_config = cfg
 
-        tokenizer, train_loader, val_loader = build_data_pipeline(config)
+        tokenizer, train_loader, val_loader = build_data_pipeline(config.data, config.trainer.batch_size, config.trainer.seed)
         model_cls = build_model(config.model)
         model: nn.Module = model_cls(tokenizer.vocab_size, config)
         model = torch.compile(model)  # type: ignore
@@ -110,36 +110,36 @@ def plot_lr_results(results: List[Dict[str, Any]]) -> None:
 
 if __name__ == "__main__":
     """Run a scheduler config and plot validation loss trends."""
-    base_config: ConfigProtocol = load_yaml_config("gpt_config.yaml")  # type: ignore
+    base_config: Config = get_config("gpt_config.yaml")
 
-    schedules = {
-        "constant": {"scheduler": "constant", "lr": base_config.trainer.lr},
+    schedules: Dict[str, Any] = {
+        "constant": {"scheduler": "constant", "lr": base_config.trainer.lr_config.lr},
         "one_cycle": {
             "scheduler": "one_cycle",
-            "lr": base_config.trainer.lr,
+            "lr": base_config.trainer.lr_config.lr,
             "one_cycle_pct": 0.3,
         },
         "cosine": {
             "scheduler": "cosine",
-            "lr": base_config.trainer.lr,
-            "min_lr_ratio": base_config.trainer.lr_config["min_lr_ratio"],
+            "lr": base_config.trainer.lr_config.lr,
+            "min_lr_ratio": base_config.trainer.lr_config.min_lr_ratio,
         },
         "cosine_restart": {
             "scheduler": "cosine_restart",
-            "lr": base_config.trainer.lr,
+            "lr": base_config.trainer.lr_config.lr,
             "cycle_steps": 2000,
         },
         "exponential_decay": {
             "scheduler": "exponential_decay",
-            "lr": base_config.trainer.lr,
+            "lr": base_config.trainer.lr_config.lr,
             "gamma": 0.995,
         },
         "polynomial_decay": {
             "scheduler": "polynomial_decay",
-            "lr": base_config.trainer.lr,
+            "lr": base_config.trainer.lr_config.lr,
             "power": 2,
         },
-        "linear_decay": {"scheduler": "linear_decay", "lr": base_config.trainer.lr},
+        "linear_decay": {"scheduler": "linear_decay", "lr": base_config.trainer.lr_config.lr},
     }
 
     results = run_lr_sweep(base_config, schedules)

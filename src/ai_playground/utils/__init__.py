@@ -15,9 +15,15 @@ from ai_playground.utils.config import (
     update_config,
     config_to_dict,
     preprocess_config,
+    get_config,
 )
 from ai_playground.utils.paths import resolve_dirs, resolve_run_name
 from ai_playground.utils.profiler import get_profiler
+from ai_playground.utils.checkpointing import (
+    save_checkpoint,
+    load_checkpoint,
+    get_latest_checkpoint_path,
+)
 
 __all__ = [
     "set_seed",
@@ -36,8 +42,12 @@ __all__ = [
     "load_config",
     "update_config",
     "config_to_dict",
+    "get_config",
     "preprocess_config",
     "resolve_dirs",
     "resolve_run_name",
     "get_profiler",
+    "save_checkpoint",
+    "load_checkpoint",
+    "get_latest_checkpoint_path",
 ]

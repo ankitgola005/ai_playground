@@ -57,7 +57,7 @@ class TrainerConfig(BaseModel):
     batch_size: int = Field(gt=0)
     eval_batch_size: int | None = Field(default=None, gt=0)
     max_epochs: int | None = Field(default=None, gt=0)
-    max_steps: int | None = Field(default=None, gt=0)
+    max_steps: int = Field(ge=0)
     val_interval: int = Field(ge=0)
 
     # Optimization

@@ -1,12 +1,10 @@
-from pathlib import Path
 from contextlib import nullcontext
-import shutil
 from typing import Optional, TYPE_CHECKING, List
 import time
 
 import torch
 import torch.nn as nn
-from torch.profiler.profiler import profile as Profiler
+from torch.amp.grad_scaler import GradScaler
 
 from ai_playground.inference.generator import Generator
 from ai_playground.utils.logger.logger_manager import (
@@ -15,15 +13,19 @@ from ai_playground.utils.logger.logger_manager import (
     BASELINE_METRICS,
 )
 from ai_playground.utils import (
+    set_seed,
     precision_to_dtype,
     build_lr_scheduler,
     get_norm_info,
     setup_progress_bar,
     get_profiler,
+    save_checkpoint,
+    load_checkpoint,
 )
 
 if TYPE_CHECKING:
     from torch.utils.data import DataLoader
+    from torch.profiler.profiler import profile as Profiler
     from torch.optim import Optimizer, lr_scheduler
     from tqdm import tqdm
     from ai_playground.configs.config import Config
@@ -54,17 +56,16 @@ class Trainer:
 
         self.precision: str = config.trainer.precision
         self.precision_dtype: torch.dtype = precision_to_dtype(self.precision)
-        self.use_amp: bool = self.device_type == "cuda" and self.precision in (
-            "fp16",
-            "bf16",
-        )
-        self.scaler = torch.amp.grad_scaler.GradScaler(
-            "cuda", enabled=self.use_amp and self.precision == "fp16"
+        self.use_amp: bool = self.precision in ("fp16", "bf16")
+        self.scaler: GradScaler | None = (
+            GradScaler(self.device_type, enabled=True)
+            if self.use_amp and self.precision == "fp16"
+            else None
         )
 
         self.warmup_steps: int = config.trainer.warmup_steps
         self.max_epochs: int | None = config.trainer.max_epochs
-        self.max_steps: int | None = config.trainer.max_steps
+        self.max_steps: int = config.trainer.max_steps
         self.save_interval: int = config.trainer.save_interval
         self.val_interval: int = config.trainer.val_interval
         self.log_interval = config.trainer.log_interval
@@ -131,19 +132,18 @@ class Trainer:
         train_dataloader: DataLoader,
         val_dataloader: Optional[DataLoader],
     ):
-        self.logger_manager.log_config(self.config)
+        self.logger_manager.log_config(self.config.trainer)
 
         # Try to load checkpoint
         step = 0
-        latest_ckpt = self._latest_checkpoint_path()
-        if latest_ckpt is not None:
-            print(f"Loading checkpoint from: {latest_ckpt}")
-            step = self.load_checkpoint(model)
-            print(f"Resuming training from step: {step}")
-        else:
+        print("Looking for saved checkpoints")
+        step = self.load_checkpoint(model)
+        if step < 0:
             print("No checkpoint found, starting training from scratch")
+        else:
+            print(f"Resuming training from step: {step}")
 
-        model = self._prepare_model(model)  # type: ignore
+        model = self._prepare_model(model)
 
         # Configure optimizer and scheduler
         if self.optimizer is None:
@@ -254,18 +254,29 @@ class Trainer:
                 f"Non-finite loss detected at step {self.global_step}: {loss}"
             )
 
-        self.strategy.backward(self.scaler.scale(loss))
+        if self.scaler is not None:
+            self.strategy.backward(self.scaler.scale(loss))
+        else:
+            self.strategy.backward(loss)
+
         for p in model.parameters():
             if p.grad is not None and not torch.isfinite(p.grad).all():
                 raise RuntimeError(
                     f"Non-finite gradient detected at step {self.global_step} for parameter {p.shape}"
                 )
-        self.scaler.unscale_(optimizer)
+
+        if self.scaler is not None:
+            self.scaler.unscale_(optimizer)
+
         if self.config.trainer.grad_clip > 0.0:
             torch.nn.utils.clip_grad_norm_(
                 model.parameters(), self.config.trainer.grad_clip
             )
+
         self.strategy.optimizer_step(optimizer, self.scaler)
+        if self.scaler is not None:
+            self.scaler.update()
+
         scheduler.step()
 
         self.global_step += 1
@@ -418,66 +429,25 @@ class Trainer:
 
     def save_checkpoint(self, model: nn.Module):
         if self.strategy.is_main_process():
-            path = self.config.trainer.save_path
-            if self.experiment_name != "":
-                path = Path(path) / self.experiment_name
-            Path(path).mkdir(parents=True, exist_ok=True)
-            checkpoint = {
-                "model": self._unwrap_model(model).state_dict(),
-                "optimizer": self.optimizer.state_dict() if self.optimizer else None,
-                "scheduler": (
-                    self.lr_scheduler.state_dict() if self.lr_scheduler else None
-                ),
-                "scaler": self.scaler.state_dict() if self.scaler else None,
-                "step": self.global_step,
-            }
-
-            step_path = Path(path) / f"ckpt_step_{self.global_step}.pt"
-            torch.save(checkpoint, step_path)
-
-            latest_path = Path(path) / "ckpt_latest.pt"
-            temp_path = Path(path) / "ckpt_latest.pt_"
-            shutil.copy2(step_path, temp_path)
-            temp_path.replace(latest_path)
+            save_checkpoint(
+                self.config.trainer,
+                model,
+                self.optimizer,
+                self.lr_scheduler,
+                self.scaler,
+                self.global_step,
+                unwrap_fn=self._unwrap_model,
+            )
 
     def load_checkpoint(self, model: nn.Module) -> int:
-        path = self.config.trainer.save_path
-        if self.experiment_name != "":
-            path = Path(path) / self.experiment_name
-        path = Path(path) / "ckpt_latest.pt"
-        if not path.exists():
-            print(f"No checkpoint found at {path}")
-            return 0
-
-        checkpoint = torch.load(path, map_location=self.strategy.device)
-        model.load_state_dict(checkpoint["model"])
-        model = torch.compile(model) if self.compile else model  # type: ignore
-
-        if not self.optimizer:
-            self.configure_optimizer_and_scheduler(model)
-        assert (
-            self.optimizer is not None
-        ), "Optimizer must be configured before loading checkpoint"
-        if checkpoint.get("optimizer") is not None:
-            self.optimizer.load_state_dict(checkpoint["optimizer"])
-        if self.lr_scheduler and checkpoint.get("scheduler") is not None:
-            self.lr_scheduler.load_state_dict(checkpoint["scheduler"])
-
-        if self.scaler and checkpoint.get("scaler") is not None:
-            self.scaler.load_state_dict(checkpoint["scaler"])
-
-        self.global_step = checkpoint.get("step", 0)
-
-        return self.global_step
-
-    def _latest_checkpoint_path(self):
-        path = self.config.trainer.save_path
-        if self.experiment_name != "":
-            path = Path(path) / self.experiment_name
-
-        ckpt = Path(path) / "ckpt_latest.pt"
-
-        return ckpt if ckpt.exists() else None
+        return load_checkpoint(
+            self.config.trainer,
+            model,
+            self.device,
+            self.optimizer,
+            self.lr_scheduler,
+            self.scaler,
+        )
 
     def _cleanup(self):
         self.logger_manager.finalize()
