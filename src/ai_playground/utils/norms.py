@@ -51,5 +51,6 @@ def get_norm_info(model: nn.Module, lr: float) -> Tuple[float, float, float]:
     """
     grad_norm = get_grad_norm(model)
     weight_norm = get_weight_norm(model)
-    update_ratio = (lr * grad_norm) / (weight_norm + 1e-8)
+    update_ratio = lr * grad_norm / weight_norm if weight_norm > 0 else 0.0
+
     return grad_norm, weight_norm, update_ratio
