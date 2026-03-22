@@ -10,7 +10,7 @@ from ai_playground.distributed import Parallel
 if TYPE_CHECKING:
     import torch.nn as nn
     from torch.optim import Optimizer
-    from ai_playground.configs.config import DistributedConfigProtocol
+    from ai_playground.configs.config import DistributedConfig
     from typing import Optional, Callable, Tuple
 
 
@@ -20,7 +20,7 @@ class DDParallel(Parallel):
     Extends the base Parallel class.
     """
 
-    def __init__(self, config: "DistributedConfigProtocol"):
+    def __init__(self, config: "DistributedConfig"):
         """
         Initialize DDParallel strategy.
 

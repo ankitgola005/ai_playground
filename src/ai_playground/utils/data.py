@@ -5,20 +5,19 @@ import torch
 from ai_playground.data import dataset, CharTokenizer
 
 if TYPE_CHECKING:
-    from ai_playground.configs.config import ConfigProtocol, DataConfigProtocol
+    from ai_playground.configs.config import DataConfig
     from typing import Tuple
 
 
 DATA_DIR = Path(__file__).resolve().parent.parent.parent.parent / "datasets"
 
 
-def get_dataset_path(config: "DataConfigProtocol") -> Path:
+def get_dataset_path(dataset: str) -> Path:
     """
     Get path to a dataset based on the dataset name in config.
 
     Args:
-        config (DataConfigProtocol): Data configuration object.
-            Must have attribute `dataset`.
+        dataset (str): Dataset name.
 
     Returns:
         Path: Path to the dataset file.
@@ -26,22 +25,24 @@ def get_dataset_path(config: "DataConfigProtocol") -> Path:
     Raises:
         NotImplementedError: If the dataset name is not supported.
     """
-    if config.dataset == "shakespeare":
+    if dataset == "shakespeare":
         return DATA_DIR / "text_datasets/shakespeare.txt"
     else:
-        raise NotImplementedError(
-            f"Dataset '{config.dataset}' is currently not supported."
-        )
+        raise NotImplementedError(f"Dataset '{dataset}' is currently not supported.")
 
 
 def build_data_pipeline(
-    config: "ConfigProtocol",
+    data_config: "DataConfig",
+    batch_size: int,
+    seed: int = 42,
+    shuffle: bool = True,
+    drop_last: bool = True,
 ) -> Tuple[CharTokenizer, "torch.utils.data.DataLoader", "torch.utils.data.DataLoader"]:
     """
     Build the tokenizer and PyTorch data loaders for training and validation.
 
     Args:
-        config (ConfigProtocol): Configuration object with a `data` attribute
+        config (Config): Configuration object with a `data` attribute
             of type DataConfigProtocol.
 
     Returns:
@@ -50,7 +51,7 @@ def build_data_pipeline(
             - train_loader: DataLoader for training data
             - val_loader: DataLoader for validation data
     """
-    dataset_path = get_dataset_path(config.data)
+    dataset_path = get_dataset_path(data_config.dataset)
 
     with open(dataset_path, "r", encoding="utf-8") as f:
         text = f.read()
@@ -60,10 +61,30 @@ def build_data_pipeline(
     encoded = torch.tensor(tokenizer.encode(text), dtype=torch.long)
 
     # Split
-    train_data, val_data = dataset.train_val_split(encoded, split=config.data.split)
+    train_data, val_data = dataset.train_val_split(encoded, split=data_config.split)
 
     # Build dataloaders
-    train_loader = dataset.build_dataloader(config, train_data)
-    val_loader = dataset.build_dataloader(config, val_data)
+    train_loader = dataset.build_dataloader(
+        data_config=data_config,
+        encoded_data=train_data,
+        batch_size=batch_size,
+        seed=seed,
+        shuffle=shuffle,
+        drop_last=drop_last,
+    )
+    val_loader = dataset.build_dataloader(
+        data_config=data_config,
+        encoded_data=val_data,
+        batch_size=batch_size,
+        seed=seed,
+        shuffle=shuffle,
+        drop_last=drop_last,
+    )
 
     return tokenizer, train_loader, val_loader
+
+
+def create_infinite_loader(dl):
+    while True:
+        for batch in dl:
+            yield batch

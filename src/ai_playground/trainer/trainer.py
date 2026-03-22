@@ -1,12 +1,11 @@
-from pathlib import Path
 from contextlib import nullcontext
-import shutil
 from typing import Optional, TYPE_CHECKING, List
 import time
 
 import torch
 import torch.nn as nn
-from torch.profiler import profile, ProfilerActivity
+from torch.amp.grad_scaler import GradScaler
+import warnings
 
 from ai_playground.inference.generator import Generator
 from ai_playground.utils.logger.logger_manager import (
@@ -15,24 +14,30 @@ from ai_playground.utils.logger.logger_manager import (
     BASELINE_METRICS,
 )
 from ai_playground.utils import (
+    set_seed,
     precision_to_dtype,
     build_lr_scheduler,
     get_norm_info,
     setup_progress_bar,
+    get_profiler,
+    save_checkpoint,
+    load_checkpoint,
+    create_infinite_loader,
 )
 
 if TYPE_CHECKING:
     from torch.utils.data import DataLoader
+    from torch.profiler.profiler import profile as Profiler
     from torch.optim import Optimizer, lr_scheduler
     from tqdm import tqdm
-    from ai_playground.configs.config import ConfigProtocol
+    from ai_playground.configs.config import Config
     from ai_playground.distributed.base import Parallel
 
 
 class Trainer:
     def __init__(
         self,
-        config: "ConfigProtocol",
+        config: "Config",
         strategy: Parallel,
         optimizer: Optional[Optimizer] = None,
     ):
@@ -45,30 +50,29 @@ class Trainer:
 
         self.strategy: Parallel = strategy
 
-        self.config: "ConfigProtocol" = config
-        self.set_seed(
-            config.experimental.seed + (self.strategy.world_size * self.strategy.rank)
-        )
+        self.config: "Config" = config
+        set_seed(config.trainer.seed + (self.strategy.world_size * self.strategy.rank))
         self.device_type: str = self.strategy.device_type
         self.device: torch.device = self.strategy.device
-        self.compile: bool = self.config.experimental.compile
+        self.compile: bool = self.config.model.compile
 
         self.precision: str = config.trainer.precision
         self.precision_dtype: torch.dtype = precision_to_dtype(self.precision)
-        self.use_amp: bool = self.device_type == "cuda" and self.precision in (
-            "fp16",
-            "bf16",
-        )
-        self.scaler = torch.amp.grad_scaler.GradScaler(
-            "cuda", enabled=self.use_amp and self.precision == "fp16"
+        self.use_amp: bool = self.precision in ("fp16", "bf16")
+        self.scaler: GradScaler | None = (
+            GradScaler(self.device_type, enabled=True)
+            if self.use_amp and self.precision == "fp16"
+            else None
         )
 
-        self.max_epochs: int = config.trainer.max_epochs
+        self.warmup_steps: int = config.trainer.warmup_steps
         self.max_steps: int = config.trainer.max_steps
         self.save_interval: int = config.trainer.save_interval
         self.val_interval: int = config.trainer.val_interval
         self.log_interval = config.trainer.log_interval
-        self.logger_manager: LoggerManager = create_loggers(self.strategy, config)
+        self.logger_manager: LoggerManager = create_loggers(
+            self.strategy, config.trainer
+        )
         self.logger_metrics: set = set(BASELINE_METRICS)
 
         self.use_progress_bar: bool = config.trainer.use_progress_bar
@@ -76,39 +80,17 @@ class Trainer:
         self.progress_bar_metrics = BASELINE_METRICS if self.use_progress_bar else None
 
         self.use_profiler: bool = config.trainer.use_profiler
-        self.profiler: Optional[profile] = None
+        self.profiler: Optional[Profiler] = None
         if self.use_profiler:
-            activities = (
-                [ProfilerActivity.CPU, ProfilerActivity.CUDA]
-                if self.device_type == "cuda"
-                else [ProfilerActivity.CPU]
-            )
-            self.profiler = profile(
-                activities=activities,
-                record_shapes=True,
-                with_stack=True,
-                profile_memory=True,
-                schedule=torch.profiler.schedule(
-                    wait=config.trainer.profiler_wait,
-                    warmup=config.trainer.profiler_warmup,
-                    active=config.trainer.profiler_active,
-                    repeat=config.trainer.profiler_repeat,
-                ),
+            assert self.config.trainer.log_dir is not None
+            self.profiler = get_profiler(
+                self.config.trainer.profiler_config,
+                device_type=self.strategy.device_type,
+                log_dir=self.config.trainer.log_dir,
             )
 
-        self.experiment_name: str = config.experimental.experiment_name
+        self.run_name: str = config.trainer.run_name
         self.val_loss_history: List[dict] = []
-
-    def set_seed(self, seed: int = 42):
-        import random
-        import numpy as np
-
-        random.seed(seed)
-        np.random.seed(seed)
-        torch.manual_seed(seed)
-
-        if torch.cuda.is_available():
-            torch.cuda.manual_seed_all(seed)
 
     def configure_optimizer_and_scheduler(self, model: nn.Module):
         decay = []
@@ -128,11 +110,16 @@ class Trainer:
                     {"params": decay, "weight_decay": self.config.trainer.weight_decay},
                     {"params": no_decay, "weight_decay": 0.0},
                 ],
-                lr=self.config.trainer.lr,
+                lr=self.config.trainer.lr_config.lr,
                 betas=self.config.trainer.betas,
             )
         )
-        self.lr_scheduler = build_lr_scheduler(self.optimizer, self.config.trainer)
+        self.lr_scheduler = build_lr_scheduler(
+            optimizer=self.optimizer,
+            lr_config=self.config.trainer.lr_config,
+            warmup_steps=self.warmup_steps,
+            max_steps=self.max_steps,
+        )
 
     def _prepare_model(self, model: nn.Module, stage: str = "train"):
         self.strategy.setup_environment(stage=stage)
@@ -146,19 +133,18 @@ class Trainer:
         train_dataloader: DataLoader,
         val_dataloader: Optional[DataLoader],
     ):
-        self.logger_manager.log_config(self.config)
+        self.logger_manager.log_config(self.config.trainer)
 
         # Try to load checkpoint
         step = 0
-        latest_ckpt = self._latest_checkpoint_path()
-        if latest_ckpt is not None:
-            print(f"Loading checkpoint from: {latest_ckpt}")
-            step = self.load_checkpoint(model)
-            print(f"Resuming training from step: {step}")
-        else:
+        print("Looking for saved checkpoints")
+        step = self.load_checkpoint(model)
+        if step < 0:
             print("No checkpoint found, starting training from scratch")
+        else:
+            print(f"Resuming training from step: {step}")
 
-        model = self._prepare_model(model)  # type: ignore
+        model = self._prepare_model(model)
 
         # Configure optimizer and scheduler
         if self.optimizer is None:
@@ -193,57 +179,41 @@ class Trainer:
             # Train
             profiler_context = self.profiler if self.profiler else nullcontext()
             with profiler_context:
-                for epoch in range(self.max_epochs):
-                    if self._should_stop():
-                        break
+                model.train()
+                train_iter = create_infinite_loader(train_dataloader)
 
-                    model.train()
-                    self._train_one_epoch(
-                        model,
-                        self.optimizer,
-                        self.lr_scheduler,
-                        train_dataloader,
-                        val_dataloader,
+                while not self._should_stop():
+                    xb, yb = next(train_iter)
+
+                    if self.strategy.device_type == "cuda":
+                        torch.cuda.synchronize()
+                    start = time.perf_counter()
+
+                    # Forward and backward pass
+                    logits, loss = self._train_step(
+                        model, xb, yb, self.optimizer, self.lr_scheduler
                     )
+
+                    if self.strategy.device_type == "cuda":
+                        torch.cuda.synchronize()
+                    self.step_time_accumulator += time.perf_counter() - start
+                    self.tokens_accumulator += xb.numel()
+
+                    # Profiling
+                    if self.profiler is not None:
+                        self.profiler.step()
+
+                    # Logging
+                    self._maybe_log(model, self.lr_scheduler, loss)
+
+                    # Validation
+                    self._maybe_validate(model, val_dataloader)
+
+                    # Checkpointing
+                    self._maybe_checkpoint(model)
+
         finally:
             self._cleanup()
-
-    def _train_one_epoch(
-        self,
-        model: nn.Module,
-        optimizer: Optimizer,
-        scheduler: lr_scheduler.LambdaLR,
-        train_dataloader: DataLoader,
-        val_dataloader: Optional[DataLoader],
-    ):
-        for xb, yb in train_dataloader:
-            if self._should_stop():
-                break
-
-            if self.strategy.device_type == "cuda":
-                torch.cuda.synchronize()
-            start = time.perf_counter()
-
-            # Forward and backward pass
-            logits, loss = self._train_step(model, xb, yb, optimizer, scheduler)
-
-            if self.strategy.device_type == "cuda":
-                torch.cuda.synchronize()
-            self.step_time_accumulator += time.perf_counter() - start
-            self.tokens_accumulator += xb.numel()
-
-            # Profiling
-            if self.profiler is not None:
-                self.profiler.step()
-
-            # Logging
-            self._maybe_log(model, scheduler, loss)
-
-            # Validation
-            self._maybe_validate(model, val_dataloader)
-
-            # Checkpointing
-            self._maybe_checkpoint(model)
 
     def _train_step(
         self,
@@ -269,18 +239,29 @@ class Trainer:
                 f"Non-finite loss detected at step {self.global_step}: {loss}"
             )
 
-        self.strategy.backward(self.scaler.scale(loss))
+        if self.scaler is not None:
+            self.strategy.backward(self.scaler.scale(loss))
+        else:
+            self.strategy.backward(loss)
+
         for p in model.parameters():
             if p.grad is not None and not torch.isfinite(p.grad).all():
                 raise RuntimeError(
                     f"Non-finite gradient detected at step {self.global_step} for parameter {p.shape}"
                 )
-        self.scaler.unscale_(optimizer)
+
+        if self.scaler is not None:
+            self.scaler.unscale_(optimizer)
+
         if self.config.trainer.grad_clip > 0.0:
             torch.nn.utils.clip_grad_norm_(
                 model.parameters(), self.config.trainer.grad_clip
             )
+
         self.strategy.optimizer_step(optimizer, self.scaler)
+        if self.scaler is not None:
+            self.scaler.update()
+
         scheduler.step()
 
         self.global_step += 1
@@ -422,7 +403,6 @@ class Trainer:
             prompts=prompts,
             max_tokens=max_tokens,
             use_cache=use_cache,
-            max_cache_len=max_cache_len,
         )
 
     def _unwrap_model(self, model):
@@ -433,66 +413,25 @@ class Trainer:
 
     def save_checkpoint(self, model: nn.Module):
         if self.strategy.is_main_process():
-            path = self.config.trainer.save_path
-            if self.experiment_name != "":
-                path = Path(path) / self.experiment_name
-            Path(path).mkdir(parents=True, exist_ok=True)
-            checkpoint = {
-                "model": self._unwrap_model(model).state_dict(),
-                "optimizer": self.optimizer.state_dict() if self.optimizer else None,
-                "scheduler": (
-                    self.lr_scheduler.state_dict() if self.lr_scheduler else None
-                ),
-                "scaler": self.scaler.state_dict() if self.scaler else None,
-                "step": self.global_step,
-            }
-
-            step_path = Path(path) / f"ckpt_step_{self.global_step}.pt"
-            torch.save(checkpoint, step_path)
-
-            latest_path = Path(path) / "ckpt_latest.pt"
-            temp_path = Path(path) / "ckpt_latest.pt_"
-            shutil.copy2(step_path, temp_path)
-            temp_path.replace(latest_path)
+            save_checkpoint(
+                self.config.trainer,
+                model,
+                self.optimizer,
+                self.lr_scheduler,
+                self.scaler,
+                self.global_step,
+                unwrap_fn=self._unwrap_model,
+            )
 
     def load_checkpoint(self, model: nn.Module) -> int:
-        path = self.config.trainer.save_path
-        if self.experiment_name != "":
-            path = Path(path) / self.experiment_name
-        path = Path(path) / "ckpt_latest.pt"
-        if not path.exists():
-            print(f"No checkpoint found at {path}")
-            return 0
-
-        checkpoint = torch.load(path, map_location=self.strategy.device)
-        model.load_state_dict(checkpoint["model"])
-        model = torch.compile(model) if self.compile else model  # type: ignore
-
-        if not self.optimizer:
-            self.configure_optimizer_and_scheduler(model)
-        assert (
-            self.optimizer is not None
-        ), "Optimizer must be configured before loading checkpoint"
-        if checkpoint.get("optimizer") is not None:
-            self.optimizer.load_state_dict(checkpoint["optimizer"])
-        if self.lr_scheduler and checkpoint.get("scheduler") is not None:
-            self.lr_scheduler.load_state_dict(checkpoint["scheduler"])
-
-        if self.scaler and checkpoint.get("scaler") is not None:
-            self.scaler.load_state_dict(checkpoint["scaler"])
-
-        self.global_step = checkpoint.get("step", 0)
-
-        return self.global_step
-
-    def _latest_checkpoint_path(self):
-        path = self.config.trainer.save_path
-        if self.experiment_name != "":
-            path = Path(path) / self.experiment_name
-
-        ckpt = Path(path) / "ckpt_latest.pt"
-
-        return ckpt if ckpt.exists() else None
+        return load_checkpoint(
+            self.config.trainer,
+            model,
+            self.device,
+            self.optimizer,
+            self.lr_scheduler,
+            self.scaler,
+        )
 
     def _cleanup(self):
         self.logger_manager.finalize()

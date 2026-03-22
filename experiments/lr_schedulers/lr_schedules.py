@@ -5,15 +5,15 @@ from pathlib import Path
 from typing import Any, Dict, List
 import matplotlib.pyplot as plt
 
-import torch
-from ai_playground.utils.load_yaml_config import load_yaml_config
+from ai_playground.configs import LRConfig
+from ai_playground.utils.config import get_config
 from ai_playground.utils import build_data_pipeline, build_model, get_strategy
 from ai_playground.trainer import Trainer
 
 from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
-    from ai_playground.configs.config import ConfigProtocol
+    from ai_playground.configs.config import Config
     import torch.nn as nn
 
 
@@ -22,7 +22,7 @@ RESULT_DIR.mkdir(parents=True, exist_ok=True)
 
 
 def run_lr_sweep(
-    base_config: ConfigProtocol, schedules: Dict[str, Dict[str, Any]]
+    base_config: Config, schedules: Dict[str, Dict[str, Any]]
 ) -> List[Dict[str, Any]]:
     """Run multiple LR schedules and record validation loss curves.
     Resume if results already exist.
@@ -48,12 +48,15 @@ def run_lr_sweep(
 
         print(f"\nRunning LR schedule: {schedule_name}")
         config = copy.deepcopy(base_config)
-        config.trainer.lr_config = cfg
+        config.trainer.lr_config = LRConfig(**cfg)
 
-        tokenizer, train_loader, val_loader = build_data_pipeline(config)
+        tokenizer, train_loader, val_loader = build_data_pipeline(
+            config.data, config.trainer.batch_size, config.trainer.seed
+        )
         model_cls = build_model(config.model)
-        model: nn.Module = model_cls(tokenizer.vocab_size, config)
-        model = torch.compile(model)  # type: ignore
+        model: nn.Module = model_cls(
+            config.model, tokenizer.vocab_size, config.data.block_size
+        )
 
         trainer = Trainer(config, strategy=get_strategy(config.distributed))
         trainer.fit(model, train_loader, val_loader)  # type: ignore
@@ -110,36 +113,43 @@ def plot_lr_results(results: List[Dict[str, Any]]) -> None:
 
 if __name__ == "__main__":
     """Run a scheduler config and plot validation loss trends."""
-    base_config: ConfigProtocol = load_yaml_config("gpt_config.yaml")  # type: ignore
+    base_config: Config = get_config("minigpt_config.yaml")
 
-    schedules = {
-        "constant": {"scheduler": "constant", "lr": base_config.trainer.lr},
+    schedules: Dict[str, Any] = {
+        "constant": {"scheduler": "constant", "lr": base_config.trainer.lr_config.lr},
         "one_cycle": {
             "scheduler": "one_cycle",
-            "lr": base_config.trainer.lr,
+            "lr": base_config.trainer.lr_config.lr,
             "one_cycle_pct": 0.3,
+            "min_lr_ratio": base_config.trainer.lr_config.min_lr_ratio,
         },
         "cosine": {
             "scheduler": "cosine",
-            "lr": base_config.trainer.lr,
-            "min_lr_ratio": base_config.trainer.lr_config["min_lr_ratio"],
+            "lr": base_config.trainer.lr_config.lr,
+            "min_lr_ratio": base_config.trainer.lr_config.min_lr_ratio,
         },
         "cosine_restart": {
             "scheduler": "cosine_restart",
-            "lr": base_config.trainer.lr,
+            "lr": base_config.trainer.lr_config.lr,
             "cycle_steps": 2000,
+            "min_lr_ratio": base_config.trainer.lr_config.min_lr_ratio,
         },
         "exponential_decay": {
             "scheduler": "exponential_decay",
-            "lr": base_config.trainer.lr,
+            "lr": base_config.trainer.lr_config.lr,
             "gamma": 0.995,
         },
         "polynomial_decay": {
             "scheduler": "polynomial_decay",
-            "lr": base_config.trainer.lr,
+            "lr": base_config.trainer.lr_config.lr,
             "power": 2,
+            "min_lr_ratio": base_config.trainer.lr_config.min_lr_ratio,
         },
-        "linear_decay": {"scheduler": "linear_decay", "lr": base_config.trainer.lr},
+        "linear_decay": {
+            "scheduler": "linear_decay",
+            "lr": base_config.trainer.lr_config.lr,
+            "min_lr_ratio": base_config.trainer.lr_config.min_lr_ratio,
+        },
     }
 
     results = run_lr_sweep(base_config, schedules)

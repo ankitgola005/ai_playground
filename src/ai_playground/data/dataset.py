@@ -6,7 +6,7 @@ import numpy as np
 from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
-    from ai_playground.configs.config import ConfigProtocol
+    from ai_playground.configs import DataConfig
     from typing import Tuple
 
 
@@ -52,34 +52,43 @@ def seed_worker(worker_id: int) -> None:
 
 
 def build_dataloader(
-    config: "ConfigProtocol", encoded_data: torch.Tensor
+    data_config: "DataConfig",
+    encoded_data: torch.Tensor,
+    batch_size: int,
+    seed: int = 42,
+    shuffle: bool = True,
+    drop_last: bool = True,
 ) -> DataLoader:
     """
-    Build training dataloader.
+    Build dataloader.
 
     Args:
-        config: Global config
+        data_config: Data config
         encoded_data: 1D tensor of token IDs
+        batch_size: Batch size
+        seed: Random seed
+        shuffle: Whether to shuffle data
+        drop_last: Whether drop last incomplete batch
 
     Returns:
         PyTorch DataLoader
     """
     dataset = TextDataset(
         encoded_data,
-        block_size=int(config.model.model_kwargs["block_size"]),
+        block_size=data_config.block_size,
     )
 
-    generator = torch.Generator().manual_seed(config.experimental.seed)
+    generator = torch.Generator().manual_seed(seed)
 
     dataloader = DataLoader(
         dataset,
-        batch_size=config.trainer.batch_size,
-        shuffle=True,
-        num_workers=config.data.num_workers,
+        batch_size=batch_size,
+        shuffle=shuffle,
+        num_workers=data_config.num_workers,
         worker_init_fn=seed_worker,
         generator=generator,
-        drop_last=True,
-        pin_memory=True,
+        drop_last=drop_last,
+        pin_memory=torch.cuda.is_available(),
     )
     return dataloader
 
@@ -97,7 +106,7 @@ def train_val_split(
     Returns:
         (train_data, val_data)
     """
-    split_idx = int(len(encoded_data) * split)
+    split_idx: int = int(len(encoded_data) * split)
     train_data = encoded_data[:split_idx]
     val_data = encoded_data[split_idx:]
     return train_data, val_data

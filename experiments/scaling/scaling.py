@@ -2,14 +2,14 @@ import argparse
 import copy
 import matplotlib.pyplot as plt
 
-from ai_playground.utils.load_yaml_config import load_yaml_config
+from ai_playground.utils import get_config
 from ai_playground.utils import build_data_pipeline, build_model, get_strategy
 from ai_playground.trainer import Trainer
 
 from typing import TYPE_CHECKING, List, Dict, Tuple
 
 if TYPE_CHECKING:
-    from ai_playground.configs.config import ConfigProtocol
+    from ai_playground.configs.config import Config
     import torch.nn as nn
 
 
@@ -24,21 +24,23 @@ def count_params(model: nn.Module) -> int:
     return sum(p.numel() for p in model.parameters())
 
 
-def run_single(config: "ConfigProtocol") -> Tuple[int, float]:
+def run_single(config: "Config") -> Tuple[int, float]:
     """Single run
 
     Args:
-        config (ConfigProtocol): Config to run
+        config (Config): Config to run
 
     Returns:
         Tuple containing:
             - Number of params in model
             - Final val_loss
     """
-    tokenizer, train_loader, val_loader = build_data_pipeline(config)
+    tokenizer, train_loader, val_loader = build_data_pipeline(
+        config.data, config.trainer.batch_size, config.trainer.seed
+    )
 
     model_cls = build_model(config.model)
-    model = model_cls(tokenizer.vocab_size, config)
+    model = model_cls(config.model, tokenizer.vocab_size, config.data.block_size)
 
     trainer = Trainer(config, strategy=get_strategy(config.distributed))
     trainer.fit(model, train_loader, val_loader)
@@ -51,12 +53,12 @@ def run_single(config: "ConfigProtocol") -> Tuple[int, float]:
 
 
 def width_scaling(
-    base_config: "ConfigProtocol",
+    base_config: "Config",
 ) -> Tuple[List[int], List[int], List[float]]:
     """Run a width scaling experiment by sweeping embedding sizes.
 
     Args:
-        base_config (ConfigProtocol): Base configuration.
+        base_config (Config): Base configuration.
 
     Returns:
         Tuple containing:
@@ -82,12 +84,12 @@ def width_scaling(
 
 
 def depth_scaling(
-    base_config: "ConfigProtocol",
+    base_config: "Config",
 ) -> Tuple[List[int], List[int], List[float]]:
     """Run a depth scaling experiment by sweeping number of layers sizes.
 
     Args:
-        base_config (ConfigProtocol): Base configuration.
+        base_config (Config): Base configuration.
 
     Returns:
         Tuple containing:
@@ -112,11 +114,11 @@ def depth_scaling(
     return layers, params_list, loss_list
 
 
-def depth_width_scaling(base_config: "ConfigProtocol") -> List[Dict]:
+def depth_width_scaling(base_config: "Config") -> List[Dict]:
     """Run a depth + width scaling experiment.
 
     Args:
-        base_config (ConfigProtocol): Base configuration.
+        base_config (Config): Base configuration.
 
     Returns:
         Tuple containing:
@@ -173,7 +175,7 @@ def main():
     )
     args = parser.parse_args()
 
-    base_config = load_yaml_config("gpt_config.yaml")
+    base_config = get_config("minigpt_config.yaml")
 
     if args.law == "width":
         embeds, params_w, loss_w = width_scaling(base_config)  # type: ignore

@@ -5,7 +5,7 @@ from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
     from typing import Dict, Any
-    from ai_playground.configs.config import ConfigProtocol
+    from ai_playground.configs.config import TrainerConfig
 
 
 class Logger(ABC):
@@ -18,18 +18,15 @@ class Logger(ABC):
         log_dir (Path): Directory where logs will be stored.
     """
 
-    def __init__(self, config: "ConfigProtocol"):
+    def __init__(self, trainer_config: "TrainerConfig"):
         """
         Args:
             config (ConfigProtocol): Training configuration object.
         """
-        self.log_frequency: int = config.trainer.log_interval
+        self.log_frequency: int = trainer_config.log_interval
         self.rank_zero_only: bool = True
-        self.log_dir: Path = Path(config.trainer.log_dir)
-
-        if getattr(config.experimental, "experiment_name", "") != "":
-            self.log_dir = self.log_dir / config.experimental.experiment_name
-
+        assert trainer_config.log_dir is not None
+        self.log_dir: Path = Path(trainer_config.log_dir)
         os.makedirs(self.log_dir, exist_ok=True)
 
     def log_config(self, config: Dict[str, Any]) -> None:

@@ -1,11 +1,11 @@
 from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
-    from ai_playground.configs.config import DistributedConfigProtocol
+    from ai_playground.configs.config import DistributedConfig
     from ai_playground.distributed import Parallel
 
 
-def get_strategy(config: "DistributedConfigProtocol") -> "Parallel":
+def get_strategy(config: "DistributedConfig") -> "Parallel":
     """
     Factory function to create a distributed training strategy based on configuration.
 

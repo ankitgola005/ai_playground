@@ -1,17 +1,19 @@
 from ai_playground.configs.config import (
-    ConfigProtocol,
-    DataConfigProtocol,
-    DistributedConfigProtocol,
-    ModelConfigProtocol,
-    TrainerConfigProtocol,
-    ExperimentalConfigProtocol,
+    Config,
+    DataConfig,
+    DistributedConfig,
+    ModelConfig,
+    TrainerConfig,
+    LRConfig,
+    ProfilerConfig,
 )
 
 __all__ = [
-    "ConfigProtocol",
-    "DataConfigProtocol",
-    "DistributedConfigProtocol",
-    "ModelConfigProtocol",
-    "TrainerConfigProtocol",
-    "ExperimentalConfigProtocol",
+    "Config",
+    "DataConfig",
+    "DistributedConfig",
+    "ModelConfig",
+    "TrainerConfig",
+    "LRConfig",
+    "ProfilerConfig",
 ]

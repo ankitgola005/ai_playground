@@ -2,10 +2,10 @@ import json
 from typing import TYPE_CHECKING
 
 from ai_playground.utils.logger import console_logger, tensorboard_logger
-from ai_playground.utils.load_yaml_config import config_to_dict
+from ai_playground.utils import config_to_dict, convert_paths
 
 if TYPE_CHECKING:
-    from ai_playground.configs.config import ConfigProtocol
+    from ai_playground.configs.config import TrainerConfig
     from ai_playground.distributed.base import Parallel
     from ai_playground.utils.logger.base_logger import Logger
     from typing import List, Dict, Any
@@ -42,7 +42,7 @@ class LoggerManager:
         self,
         loggers: List["Logger"],
         strategy: "Parallel",
-        config: "ConfigProtocol",
+        trainer_config: "TrainerConfig",
     ):
         """
         Args:
@@ -52,23 +52,23 @@ class LoggerManager:
         """
         self.loggers: List["Logger"] = loggers
         self.strategy: "Parallel" = strategy
-        self.log_frequency: int = config.trainer.log_interval
+        self.log_frequency: int = trainer_config.log_interval
 
-    def log_config(self, config: "ConfigProtocol") -> None:
+    def log_config(self, config: "TrainerConfig") -> None:
         """
         Log the configuration to all loggers and print to console.
 
         Args:
             config (ConfigProtocol): Training configuration object.
         """
-        cfg_dict: Dict[str, Any] = config_to_dict(config)
+        cfg_dict: Dict[str, Any] = convert_paths(config_to_dict(config))
         print("\n" + "=" * 20 + " ConfigProtocol " + "=" * 20)
         print(json.dumps(cfg_dict, indent=2))
         print("=" * 50 + "\n")
 
         for logger in self.loggers:
             if hasattr(logger, "log_config"):
-                logger.log_config(cfg_dict)  # type: ignore
+                logger.log_config(cfg_dict)
 
     def log_metrics(self, metrics: Dict[str, float], step: int) -> None:
         """
@@ -105,7 +105,9 @@ class LoggerManager:
             logger.finalize()
 
 
-def create_loggers(strategy: "Parallel", config: "ConfigProtocol") -> LoggerManager:
+def create_loggers(
+    strategy: "Parallel", trainer_config: "TrainerConfig"
+) -> LoggerManager:
     """
     Factory function to create a LoggerManager from configuration.
 
@@ -116,13 +118,13 @@ def create_loggers(strategy: "Parallel", config: "ConfigProtocol") -> LoggerMana
     Returns:
         LoggerManager: Manager containing the requested loggers.
     """
-    logger_configs: List[str] = list(config.trainer.logger)
+    logger_configs: List[str] = list(trainer_config.logger)
     loggers: List["Logger"] = []
 
     for logger_name in logger_configs:
         if logger_name == "console":
-            loggers.append(console_logger.ConsoleLogger(config))
+            loggers.append(console_logger.ConsoleLogger(trainer_config))
         elif logger_name == "tensorboard":
-            loggers.append(tensorboard_logger.TensorBoardLogger(config))
+            loggers.append(tensorboard_logger.TensorBoardLogger(trainer_config))
 
-    return LoggerManager(loggers, strategy, config)
+    return LoggerManager(loggers, strategy, trainer_config)

@@ -4,7 +4,7 @@ from ai_playground.utils.logger.base_logger import Logger
 
 if TYPE_CHECKING:
     from typing import Dict, Any
-    from ai_playground.configs.config import ConfigProtocol
+    from ai_playground.configs.config import TrainerConfig
 
 
 class ConsoleLogger(Logger):
@@ -12,7 +12,7 @@ class ConsoleLogger(Logger):
     Logger that outputs metrics and hyperparameters to the console.
     """
 
-    def __init__(self, config: "ConfigProtocol") -> None:
+    def __init__(self, config: "TrainerConfig") -> None:
         """
         Initialize the ConsoleLogger.
 

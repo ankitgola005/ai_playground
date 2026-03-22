@@ -9,7 +9,7 @@ from ai_playground.inference.cache import KVCache, PagedKVCache
 
 if TYPE_CHECKING:
     from typing import Optional, List, Tuple
-    from ai_playground.configs.config import ConfigProtocol
+    from ai_playground.configs import ModelConfig
 
 
 class MiniGPT(nn.Module):
@@ -27,7 +27,7 @@ class MiniGPT(nn.Module):
         paged_kv_cache_block_size (int): Block size for paged KV cache.
     """
 
-    def __init__(self, vocab_size: int, config: "ConfigProtocol"):
+    def __init__(self, model_config: "ModelConfig", vocab_size: int, block_size: int):
         """
         Initialize MiniGPT.
 
@@ -36,49 +36,56 @@ class MiniGPT(nn.Module):
             config (ConfigProtocol): Configuration object with model hyperparameters.
         """
         super().__init__()
-        self.config = config
-
-        model_kwargs = self.config.model.model_kwargs
+        self.model_config = model_config
 
         # Embeddings
         self.embeddings: EmbeddingWrapper = EmbeddingWrapper(
             vocab_size,
-            int(model_kwargs["block_size"]),
-            int(model_kwargs["n_embed"]),
+            block_size,
+            int(self.model_config.model_kwargs["n_embed"]),
         )
 
         # Transformer blocks
         self.transformer_blocks: nn.Sequential = nn.Sequential(
             *[
                 TransformerBlock(
-                    embed_dim=int(model_kwargs["n_embed"]),
-                    n_head=int(model_kwargs["n_head"]),
-                    n_kv_head=int(model_kwargs["n_kv_head"]),
-                    block_size=int(model_kwargs["block_size"]),
-                    hidden_dim=int(model_kwargs["hidden_dim"]),
-                    use_flash_attention=bool(model_kwargs["use_flash_attention"]),
-                    attn_dropout=float(model_kwargs["attn_dropout"]),
-                    residual_dropout=float(model_kwargs["residual_dropout"]),
-                    ffn_dropout=float(model_kwargs["ffn_dropout"]),
+                    embed_dim=int(self.model_config.model_kwargs["n_embed"]),
+                    n_head=int(self.model_config.model_kwargs["n_head"]),
+                    n_kv_head=int(self.model_config.model_kwargs["n_kv_head"]),
+                    block_size=block_size,
+                    hidden_dim=int(self.model_config.model_kwargs["hidden_dim"]),
+                    use_flash_attention=bool(
+                        self.model_config.model_kwargs["use_flash_attention"]
+                    ),
+                    attn_dropout=float(self.model_config.model_kwargs["attn_dropout"]),
+                    residual_dropout=float(
+                        self.model_config.model_kwargs["residual_dropout"]
+                    ),
+                    ffn_dropout=float(self.model_config.model_kwargs["ffn_dropout"]),
                 )
-                for _ in range(int(model_kwargs["n_layer"]))
+                for _ in range(int(self.model_config.model_kwargs["n_layer"]))
             ]
         )
 
         # Final LN + Linear head
-        self.layernorm: nn.LayerNorm = nn.LayerNorm(int(model_kwargs["n_embed"]))
+        self.layernorm: nn.LayerNorm = nn.LayerNorm(
+            int(self.model_config.model_kwargs["n_embed"])
+        )
         self.head: nn.Linear = nn.Linear(
-            int(model_kwargs["n_embed"]), vocab_size, bias=False
+            int(self.model_config.model_kwargs["n_embed"]), vocab_size, bias=False
         )
 
         # KV Cache settings
-        self.use_kv_cache: bool = bool(model_kwargs["use_kv_cache"])
-        self.kv_cache_max_len: int = int(model_kwargs["kv_cache_max_len"])
+        self.use_kv_cache: bool = bool(self.model_config.model_kwargs["use_kv_cache"])
+        self.kv_cache_max_len: int = int(
+            self.model_config.model_kwargs["kv_cache_max_len"]
+        )
         self.use_paged_kv_cache: bool = (
-            bool(model_kwargs["use_paged_kv_cache"]) and self.use_kv_cache
+            bool(self.model_config.model_kwargs["use_paged_kv_cache"])
+            and self.use_kv_cache
         )
         self.paged_kv_cache_block_size: int = int(
-            model_kwargs["paged_kv_cache_block_size"]
+            self.model_config.model_kwargs["paged_kv_cache_block_size"]
         )
 
     def forward(
@@ -154,9 +161,9 @@ class MiniGPT(nn.Module):
             caches.append(
                 cache_cls(
                     B,
-                    int(self.config.model.model_kwargs["n_kv_head"]),
-                    int(self.config.model.model_kwargs["n_embed"])
-                    // int(self.config.model.model_kwargs["n_head"]),
+                    int(self.model_config.model_kwargs["n_kv_head"]),
+                    int(self.model_config.model_kwargs["n_embed"])
+                    // int(self.model_config.model_kwargs["n_head"]),
                     _size,
                     torch.device(device),
                     next(self.parameters()).dtype,

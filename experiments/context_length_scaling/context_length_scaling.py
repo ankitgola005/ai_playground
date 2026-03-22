@@ -3,14 +3,14 @@ import copy
 import os
 import matplotlib.pyplot as plt
 
-from ai_playground.utils.load_yaml_config import load_yaml_config
+from ai_playground.utils import get_config
 from ai_playground.utils import build_data_pipeline, build_model, get_strategy
 from ai_playground.trainer import Trainer
 
 from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
-    from ai_playground.configs.config import ConfigProtocol
+    from ai_playground.configs.config import Config
     import torch.nn as nn
     from typing import List, Dict
 
@@ -18,9 +18,7 @@ if TYPE_CHECKING:
 TARGET_TOKENS = 25_000_000
 
 
-def run_context_sweep(
-    base_config: "ConfigProtocol", block_sizes: List[int]
-) -> List[Dict]:
+def run_context_sweep(base_config: "Config", block_sizes: List[int]) -> List[Dict]:
     results: List[Dict] = []
 
     batch_size = base_config.trainer.batch_size
@@ -36,10 +34,13 @@ def run_context_sweep(
         print(f"Tokens per step: {tokens_per_step}")
         print(f"Adjusted max_steps: {max_steps}")
 
-        tokenizer, train_loader, val_loader = build_data_pipeline(config)
+        tokenizer, train_loader, val_loader = build_data_pipeline(
+            config.data, config.trainer.batch_size, config.trainer.seed
+        )
         model_cls = build_model(config.model)
-        model: nn.Module = model_cls(tokenizer.vocab_size, config)
-        model = torch.compile(model)  # type: ignore
+        model: nn.Module = model_cls(
+            config.model, tokenizer.vocab_size, config.data.block_size
+        )
         trainer = Trainer(config, strategy=get_strategy(config.distributed))
         try:
             trainer.fit(model, train_loader, val_loader)  # type: ignore
@@ -90,7 +91,7 @@ def plot_context_results(results: List[Dict], save_dir: str = "plots") -> None:
 
 
 if __name__ == "__main__":
-    base_config = load_yaml_config("gpt_config.yaml")
+    base_config = get_config("minigpt_config.yaml")
     block_sizes = [32, 48, 64, 96, 128, 192, 256, 384, 512]
 
     results = run_context_sweep(base_config, block_sizes)  # type: ignore

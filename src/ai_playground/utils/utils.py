@@ -5,8 +5,53 @@ from pathlib import Path
 import subprocess
 from tqdm import tqdm
 
+from typing import Literal
+
 REPO_ROOT = Path(__file__).resolve().parent.parent.parent.parent
 DATA_DIR = REPO_ROOT / "datasets/"
+DeviceType = Literal["cpu", "cuda"]
+
+
+def set_seed(seed: int = 42) -> None:
+    """
+    Set random seeds for Python, NumPy, and PyTorch for reproducibility.
+
+    Args:
+        seed (int, optional): Seed value. Defaults to 42.
+    """
+    random.seed(seed)
+    np.random.seed(seed)
+    torch.manual_seed(seed)
+
+    if torch.cuda.is_available():
+        torch.cuda.manual_seed_all(seed)
+
+
+def resolve_device(device: Literal["auto", "cpu", "cuda"]) -> Literal["cpu", "cuda"]:
+    """
+    Resolve config device.
+
+    Args:
+        device: Device preference from config.
+            - "auto": Select "cuda" if available, else "cpu"
+            - "cuda": Select "cuda" if available
+            - "cpu": Use CPU
+
+    Returns:
+        Device string: "cpu" or "cuda"
+
+    Raises:
+        RuntimeError: If "cuda" is requested but CUDA is not available.
+    """
+    if device == "auto":
+        return "cuda" if torch.cuda.is_available() else "cpu"
+
+    if device == "cuda":
+        if not torch.cuda.is_available():
+            raise RuntimeError("CUDA requested but not available")
+        return "cuda"
+
+    return "cpu"
 
 
 def precision_to_dtype(precision: str) -> torch.dtype:
@@ -29,21 +74,6 @@ def precision_to_dtype(precision: str) -> torch.dtype:
     if precision == "bf16":
         return torch.bfloat16
     raise ValueError(f"Unsupported precision: {precision}")
-
-
-def set_seed(seed: int = 42) -> None:
-    """
-    Set random seeds for Python, NumPy, and PyTorch for reproducibility.
-
-    Args:
-        seed (int, optional): Seed value. Defaults to 42.
-    """
-    random.seed(seed)
-    np.random.seed(seed)
-    torch.manual_seed(seed)
-
-    if torch.cuda.is_available():
-        torch.cuda.manual_seed_all(seed)
 
 
 def setup_progress_bar(
