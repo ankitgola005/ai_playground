@@ -47,7 +47,12 @@ class BiGram(nn.Module):
             loss = F.cross_entropy(logits_flat, targets_flat)
         return logits, loss
 
-    def generate(self, idx: torch.Tensor, max_new_tokens: int = 1) -> torch.Tensor:
+    def generate(
+        self,
+        idx: torch.Tensor,
+        max_new_tokens: int = 1,
+        generator: torch.Generator | None = None,
+    ) -> torch.Tensor:
         """
         Generate new tokens from the model autoregressively.
 
@@ -65,7 +70,9 @@ class BiGram(nn.Module):
             # Convert logits to probabilities
             probs: torch.Tensor = F.softmax(logits_last, dim=-1)  # (B, C)
             # Sample the next token
-            idx_next: torch.Tensor = torch.multinomial(probs, num_samples=1)  # (B, 1)
+            idx_next: torch.Tensor = torch.multinomial(
+                probs, num_samples=1, generator=generator
+            )  # (B, 1)
             # Append to the sequence
             idx = torch.cat((idx, idx_next), dim=1)  # (B, T+1)
         return idx
