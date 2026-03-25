@@ -77,7 +77,7 @@ class Generator:
         return [self.tokenizer.decode(o.tolist()) for o in output]
 
     def sample(self, logits):
-        return torch.argmax(logits, dim=-1, keepdim=True)
+        return torch.argmax(logits[:, -1, :], dim=-1, keepdim=True)
 
     def time_dict_reset(self):
         self.time_dict = {
