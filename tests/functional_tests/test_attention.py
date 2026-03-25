@@ -3,6 +3,7 @@ import torch
 
 from ai_playground.models.transformer.attention import MultiHeadAttention
 from ai_playground.inference.cache import KVCache, PagedKVCache
+from ai_playground.inference.cache.sparse_kv_cache import SparseKVCache
 
 
 @pytest.fixture
@@ -159,3 +160,73 @@ def test_blockwise_decode(attn, x):
     out_decode, _ = attn(x[:, -1:], past_key_value=cache, use_cache=True)
 
     assert torch.allclose(out_full[:, -1:], out_decode, atol=1e-5)
+
+
+def test_sparse_vs_full():
+    device = "cpu"
+    dtype = torch.float32
+    B, T, C = 1, 16, 32
+    stride = 2
+
+    # Initialize attention
+    attn = MultiHeadAttention(
+        embed_dim=C,
+        n_head=4,
+        n_kv_head=2,
+        block_size=32,
+        use_flash_attention=False,
+        attn_droupout=0.0,
+        residual_droupout=0.0,
+    ).to(device=device, dtype=dtype)
+
+    # Generate random input
+    x = torch.randn(B, T, C, device=device, dtype=dtype)
+
+    # Standard KVCache
+    full_cache = KVCache(
+        B=B,
+        H=attn.n_kv_head,
+        head_dim=attn.head_dim,
+        max_len=T,
+        device=device,
+        dtype=dtype,
+    )
+    # Sparse KVCache
+    sparse_cache = SparseKVCache(
+        B=B,
+        H=attn.n_kv_head,
+        head_dim=attn.head_dim,
+        max_len=T,
+        device=device,
+        dtype=dtype,
+        stride=stride,
+    )
+
+    # Append tokens
+    for t in range(T):
+        x_t = x[:, t : t + 1, :]
+        k_proj = attn.k_proj(x_t)
+        v_proj = attn.v_proj(x_t)
+
+        k = k_proj.view(B, 2, 1, attn.head_dim)  # H=2 KV heads
+        v = v_proj.view(B, 2, 1, attn.head_dim)
+
+        full_cache.append(k, v)
+        sparse_cache.append(k, v)
+
+    # Retrieve KV
+    k_full, v_full = full_cache.get_kv()
+    k_sparse, v_sparse = sparse_cache.get_kv()
+
+    # Expected positions
+    expected_positions = list(range(0, T, stride))
+    print(f"Expected sparse positions: {expected_positions}")
+
+    # Test shapes
+    assert k_sparse.shape[2] == len(expected_positions), "Sparse KV length mismatch"
+    assert v_sparse.shape[2] == len(expected_positions), "Sparse KV length mismatch"
+
+    # Test values
+    for i, pos in enumerate(expected_positions):
+        torch.testing.assert_close(k_sparse[:, :, i], k_full[:, :, pos])
+        torch.testing.assert_close(v_sparse[:, :, i], v_full[:, :, pos])
