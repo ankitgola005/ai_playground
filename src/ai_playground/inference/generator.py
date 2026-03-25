@@ -20,7 +20,8 @@ class Generator:
         use_cache=True,
     ):
         self.time_dict_reset()
-        self.time_dict["ctx_len"] = len(prompts[0])
+        token_list = [self.tokenizer.encode(p) for p in prompts]
+        self.time_dict["ctx_len"] = len(token_list[0])
 
         model = self.model
         model.eval()
@@ -68,12 +69,15 @@ class Generator:
                     use_cache=use_cache,
                 )
 
-                next_token = torch.argmax(logits[:, -1], dim=-1, keepdim=True)
+                next_token = self.sample(logits)
                 output = torch.cat([output, next_token], dim=1)
             torch.cuda.synchronize()
             decode_time = time.perf_counter() - start_time
             self.time_dict["decode_time"] = decode_time
         return [self.tokenizer.decode(o.tolist()) for o in output]
+
+    def sample(self, logits):
+        return torch.argmax(logits, dim=-1, keepdim=True)
 
     def time_dict_reset(self):
         self.time_dict = {

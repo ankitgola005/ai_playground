@@ -5,7 +5,6 @@ import time
 import torch
 import torch.nn as nn
 from torch.amp.grad_scaler import GradScaler
-import warnings
 
 from ai_playground.inference.generator import Generator
 from ai_playground.utils.logger.logger_manager import (
@@ -390,16 +389,15 @@ class Trainer:
         prompts: list[str],
         max_tokens: int = 500,
         use_cache: bool = True,
-        max_cache_len: int = 256,
     ):
         model = self._prepare_model(model, stage="infer")  # type: ignore
         model.eval()
 
-        self.generator = Generator(
+        generator = Generator(
             model=model, tokenizer=tokenizer, device=self.strategy.device
         )
 
-        return self.generator.generate(
+        return generator.generate(
             prompts=prompts,
             max_tokens=max_tokens,
             use_cache=use_cache,
