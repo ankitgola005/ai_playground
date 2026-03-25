@@ -152,7 +152,7 @@ class MiniGPT(nn.Module):
         cache_cls = PagedKVCache if self.use_paged_kv_cache else KVCache
         _size = (
             self.kv_cache_max_len
-            if self.use_paged_kv_cache
+            if not self.use_paged_kv_cache
             else self.paged_kv_cache_block_size
         )
 

@@ -184,16 +184,14 @@ class MultiHeadAttention(nn.Module):
         present = cache
         is_decode: bool = (T == 1) and use_cache
 
-        # Prefill (T > 1)
-        if use_cache and cache is not None and not is_decode:
-            cache.append(k_raw, v_raw)
-            k, v = cache.get_kv()
-
-        # Decode (T == 1)
-        elif use_cache and cache is not None and is_decode:
-            k_past, v_past = cache.get_kv()
-            k = torch.cat([k_past, k_raw], dim=2)
-            v = torch.cat([v_past, v_raw], dim=2)
+        if use_cache and cache is not None:
+            if not is_decode:
+                # prefill
+                cache.append(k_raw, v_raw)
+                k, v = cache.get_kv()
+            else:
+                # decode: only read cache, no append
+                k, v = cache.get_kv()
 
         # Attention
         if self.use_flash_attention and not is_decode:

@@ -12,7 +12,9 @@ def run_training(config: Config):
     tokenizer, train_loader, val_loader = build_data_pipeline(
         config.data, config.trainer.batch_size, config.trainer.seed
     )
-    model = build_model(config.model)(config.model, tokenizer.vocab_size, config.data.block_size)
+    model = build_model(config.model)(
+        config.model, tokenizer.vocab_size, config.data.block_size
+    )
     trainer = Trainer(config, strategy=get_strategy(config.distributed))
     trainer.fit(model, train_loader, val_loader)
     preds = trainer.predict(model, tokenizer, prompts=["The quickest fox is "])
