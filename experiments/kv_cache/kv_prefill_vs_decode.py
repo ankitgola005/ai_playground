@@ -41,14 +41,12 @@ def benchmark(
     # Warmup
     while warmup > 0:
         prompt = "a" * warmup
-        tokens = tokenizer.encode(prompt)
         trainer.predict(
             model,
             tokenizer,
             prompts=[prompt],
             max_tokens=100,
             use_cache=use_cache,
-            max_cache_len=len(tokens) + 100,
         )
         warmup -= 1
 
@@ -57,14 +55,12 @@ def benchmark(
         torch.cuda.empty_cache()
         torch.cuda.reset_peak_memory_stats()
         prompt = "a" * seq_len
-        tokens = tokenizer.encode(prompt)
         trainer.predict(
             model,
             tokenizer,
             prompts=[prompt],
             max_tokens=100,
             use_cache=use_cache,
-            max_cache_len=len(tokens) + 100,
         )
         metric_data = metric_fn(trainer)
         metrics["ctx_len"].append(seq_len)
