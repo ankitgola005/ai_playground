@@ -34,6 +34,16 @@ if TYPE_CHECKING:
 
 
 class Trainer:
+    """
+    Handles training, validation, checkpointing, and inference.
+
+    Supports:
+    - Distributed strategies
+    - Mixed precision (fp16/bf16)
+    - Gradient scaling and clipping
+    - Logging, profiling, checkpointing
+    """
+
     def __init__(
         self,
         config: "Config",
@@ -42,15 +52,17 @@ class Trainer:
     ):
         self.optimizer: Optional[Optimizer] = optimizer
         self.lr_scheduler: Optional[lr_scheduler.LambdaLR] = None
+
         self.global_step: int = 0
         self.step_time_accumulator: float = 0.0
         self.data_time_accumulator: float = 0.0
         self.tokens_accumulator: int = 0
 
         self.strategy: Parallel = strategy
-
         self.config: "Config" = config
+
         set_seed(config.trainer.seed + (self.strategy.world_size * self.strategy.rank))
+
         self.device_type: str = self.strategy.device_type
         self.device: torch.device = self.strategy.device
         self.compile: bool = self.config.model.compile
@@ -58,6 +70,7 @@ class Trainer:
         self.precision: str = config.trainer.precision
         self.precision_dtype: torch.dtype = precision_to_dtype(self.precision)
         self.use_amp: bool = self.precision in ("fp16", "bf16")
+
         self.scaler: GradScaler | None = (
             GradScaler(self.device_type, enabled=True)
             if self.use_amp and self.precision == "fp16"
@@ -68,6 +81,7 @@ class Trainer:
         self.max_steps: int = config.trainer.max_steps
         self.save_interval: int = config.trainer.save_interval
         self.val_interval: int = config.trainer.val_interval
+
         self.log_interval = config.trainer.log_interval
         self.logger_manager: LoggerManager = create_loggers(
             self.strategy, config.trainer
@@ -89,11 +103,12 @@ class Trainer:
             )
 
         self.run_name: str = config.trainer.run_name
+        self.generator: Optional[Generator] = None
         self.val_loss_history: List[dict] = []
+        self.check_finite_grads: bool = False
 
     def configure_optimizer_and_scheduler(self, model: nn.Module):
-        decay = []
-        no_decay = []
+        decay, no_decay = [], []
 
         for name, param in model.named_parameters():
             if param.ndim == 1 or name.endswith("bias"):
@@ -101,10 +116,8 @@ class Trainer:
             else:
                 decay.append(param)
 
-        self.optimizer = (
-            self.optimizer
-            if self.optimizer is not None
-            else torch.optim.AdamW(
+        if self.optimizer is None:
+            self.optimizer = torch.optim.AdamW(
                 [
                     {"params": decay, "weight_decay": self.config.trainer.weight_decay},
                     {"params": no_decay, "weight_decay": 0.0},
@@ -112,7 +125,7 @@ class Trainer:
                 lr=self.config.trainer.lr_config.lr,
                 betas=self.config.trainer.betas,
             )
-        )
+
         self.lr_scheduler = build_lr_scheduler(
             optimizer=self.optimizer,
             lr_config=self.config.trainer.lr_config,
@@ -123,7 +136,6 @@ class Trainer:
     def _prepare_model(self, model: nn.Module, stage: str = "train"):
         self.strategy.setup_environment(stage=stage)
         model = self.strategy.wrap_model(model, stage=stage)
-
         return torch.compile(model) if self.compile else model
 
     def _pre_fit(
@@ -143,7 +155,7 @@ class Trainer:
         else:
             print(f"Resuming training from step: {step}")
 
-        model = self._prepare_model(model)
+        model = self._prepare_model(model)  # type: ignore
 
         # Configure optimizer and scheduler
         if self.optimizer is None:
@@ -163,6 +175,14 @@ class Trainer:
         train_dataloader: DataLoader,
         val_dataloader: Optional[DataLoader],
     ):
+        """
+        Main training loop.
+
+        Args:
+            model (nn.Module): model
+            train_dataloader (DataLoader): train dataloader
+            val_dataloader (Optional[DataLoader]): val dataloader
+        """
         try:
             # Pretraining setup
             model, train_dataloader, val_dataloader = self._pre_fit(
@@ -222,6 +242,19 @@ class Trainer:
         optimizer: Optimizer,
         scheduler: lr_scheduler.LambdaLR,
     ):
+        """
+        Single training step
+
+        Args:
+            model (nn.Module): model
+            xb (torch.Tensor): input data
+            yb (torch.Tensor): target
+            optimizer (Optimizer): optimizer
+            scheduler (lr_scheduler.LambdaLR): learning rate scheduler
+
+        Raises:
+            RuntimeError: Non finite loss or grads
+        """
         optimizer.zero_grad(set_to_none=True)
         data_start = time.perf_counter()
         xb, yb = xb.to(self.strategy.device), yb.to(self.strategy.device)
@@ -243,11 +276,12 @@ class Trainer:
         else:
             self.strategy.backward(loss)
 
-        for p in model.parameters():
-            if p.grad is not None and not torch.isfinite(p.grad).all():
-                raise RuntimeError(
-                    f"Non-finite gradient detected at step {self.global_step} for parameter {p.shape}"
-                )
+        if self.check_finite_grads:
+            for p in model.parameters():
+                if p.grad is not None and not torch.isfinite(p.grad).all():
+                    raise RuntimeError(
+                        f"Non-finite gradient detected at step {self.global_step} for parameter {p.shape}"
+                    )
 
         if self.scaler is not None:
             self.scaler.unscale_(optimizer)
@@ -357,10 +391,21 @@ class Trainer:
                 self.progress_bar.set_postfix(self.progress_bar_metrics)
 
     def _maybe_checkpoint(self, model):
+        """Save checkpoints"""
         if self.save_interval > 0 and (self.global_step) % self.save_interval == 0:
             self.save_checkpoint(model)
 
     def _validate(self, model: nn.Module, val_dataloader: DataLoader):
+        """
+        Validation
+
+        Args:
+            model (nn.Module): model
+            val_dataloader (DataLoader): validation dataloader
+
+        Returns:
+            average val loss (int): loss
+        """
         was_training = model.training
         model.eval()
         total_loss = torch.zeros(1, device=self.strategy.device)
@@ -390,6 +435,19 @@ class Trainer:
         max_tokens: int = 500,
         use_cache: bool = True,
     ):
+        """
+        Run inference.
+
+        Args:
+            model (nn.Module): model
+            tokenizer (_type_): tokenizer
+            prompts (list[str]): input prompt
+            max_tokens (int, optional): Max tokens to predict. Defaults to 500.
+            use_cache (bool, optional): use KV cache. Defaults to True.
+
+        Returns:
+            generated tokens
+        """
         model = self._prepare_model(model, stage="infer")  # type: ignore
         model.eval()
 
