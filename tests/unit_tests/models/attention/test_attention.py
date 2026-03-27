@@ -1,7 +1,7 @@
 import torch
 import pytest
 
-from ai_playground.models.transformer.attention import SelfAttention, MultiHeadAttention
+from ai_playground.models.attention import SelfAttention, MultiHeadAttention
 
 
 class DummyKVCache:

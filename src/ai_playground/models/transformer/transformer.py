@@ -1,7 +1,7 @@
 import torch.nn as nn
 from typing import TYPE_CHECKING
 
-from ai_playground.models.transformer.attention import MultiHeadAttention
+from ai_playground.models.attention import MultiHeadAttention
 
 if TYPE_CHECKING:
     import torch

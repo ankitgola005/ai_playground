@@ -75,6 +75,7 @@ def benchmark(
 # Metric functions
 def time_metrics(trainer: "Trainer"):
     """Return prefill and decode times"""
+    assert trainer.generator
     return {
         "prefill_time": trainer.generator.time_dict["prefill_time"],
         "decode_time": trainer.generator.time_dict["decode_time"],

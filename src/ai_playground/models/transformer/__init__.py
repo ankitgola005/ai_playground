@@ -1,4 +1,3 @@
-from ai_playground.models.transformer.attention import SelfAttention, MultiHeadAttention
 from ai_playground.models.transformer.embeddings import (
     EmbeddingWrapper,
     TokenEmbedding,
@@ -7,8 +6,6 @@ from ai_playground.models.transformer.embeddings import (
 from ai_playground.models.transformer.transformer import FFN, TransformerBlock
 
 __all__ = [
-    "SelfAttention",
-    "MultiHeadAttention",
     "EmbeddingWrapper",
     "TokenEmbedding",
     "PositionEmbedding",

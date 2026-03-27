@@ -1,70 +1,11 @@
 import torch
-import torch.nn as nn
+from torch import nn
 import torch.nn.functional as F
 
 from typing import Tuple, TYPE_CHECKING
 
 if TYPE_CHECKING:
-    from ai_playground.inference.cache.base_kv_cache import BaseKVCache
-
-
-class SelfAttention(nn.Module):
-    """
-    Single-head causal self-attention.
-
-    Shape:
-        Input: (B, T, C)
-        Output: (B, T, head_dim)
-    """
-
-    def __init__(self, embed_dim: int, head_dim: int, block_size: int) -> None:
-        """Initialize self attention.
-
-        Args:
-            embed_dim (int): Input embedding dimension.
-            head_dim (int): Dimension of the attention head.
-            block_size (int): Maximum sequence length (used for causal masking).
-        """
-        super().__init__()
-        self.key: nn.Linear = nn.Linear(embed_dim, head_dim, bias=False)
-        self.query: nn.Linear = nn.Linear(embed_dim, head_dim, bias=False)
-        self.value: nn.Linear = nn.Linear(embed_dim, head_dim, bias=False)
-
-        # Causal mask: upper triangular positions are False
-        self.register_buffer(
-            "mask", torch.tril(torch.ones(block_size, block_size, dtype=torch.bool))
-        )
-        self.scale: float = head_dim**-0.5
-
-    def forward(self, x: torch.Tensor) -> torch.Tensor:
-        """
-        Forward pass.
-
-        Args:
-            x (torch.Tensor): Input tensor of shape (B, T, embed_dim)
-
-        Returns:
-            torch.Tensor: Output tensor of shape (B, T, head_dim)
-        """
-        B, T, C = x.shape
-        k: torch.Tensor = self.key(x)  # (B, T, head_dim)
-        q: torch.Tensor = self.query(x)  # (B, T, head_dim)
-        v: torch.Tensor = self.value(x)  # (B, T, head_dim)
-
-        # Compute attention scores
-        attn_scores: torch.Tensor = (
-            torch.matmul(q, k.transpose(-2, -1)) * self.scale
-        )  # (B, T, T)
-        attn_scores = attn_scores.masked_fill(
-            ~self.mask[:T, :T], float("-inf")  # type: ignore
-        )  # causal masking
-        attn_probs: torch.Tensor = torch.softmax(
-            attn_scores, dim=-1
-        )  # softmax over key dimension
-
-        # Weighted sum of values
-        out: torch.Tensor = torch.matmul(attn_probs, v)  # (B, T, head_dim)
-        return out
+    from ai_playground.inference.cache import BaseKVCache, SparseSelector
 
 
 class MultiHeadAttention(nn.Module):
@@ -147,6 +88,8 @@ class MultiHeadAttention(nn.Module):
         self.attn_dropout: nn.Dropout = nn.Dropout(attn_droupout)
         self.resid_dropout: nn.Dropout = nn.Dropout(residual_droupout)
 
+        self.sparse_selector: SparseSelector | None = None
+
     def forward(
         self,
         x: torch.Tensor,
@@ -226,9 +169,32 @@ class MultiHeadAttention(nn.Module):
                     ~self.mask[:T, :key_len], float("-inf")  # type: ignore
                 )
 
-            probs = torch.softmax(scores, dim=-1)
-            probs = self.attn_dropout(probs)
-            atten = torch.matmul(probs, v)
+            if self.sparse_selector is not None:
+                idx = self.sparse_selector.select(q, k, scores)
+                D = k.size(-1)
+
+                # k_exp = k.unsqueeze(2).expand(-1, -1, q.size(2), -1, -1)
+                v_exp = v.unsqueeze(2).expand(-1, -1, q.size(2), -1, -1)
+
+                # k_sel = torch.gather(
+                #     k_exp,
+                #     3,
+                #     idx.unsqueeze(-1).expand(-1, -1, -1, -1, D),
+                # )
+                v_sel = torch.gather(
+                    v_exp,
+                    3,
+                    idx.unsqueeze(-1).expand(-1, -1, -1, -1, D),
+                )
+                scores_sel = torch.gather(scores, -1, idx)
+
+                probs = torch.softmax(scores_sel, dim=-1)
+                probs = self.attn_dropout(probs)
+                atten = torch.sum(probs.unsqueeze(-1) * v_sel, dim=-2)
+            else:
+                probs = torch.softmax(scores, dim=-1)
+                probs = self.attn_dropout(probs)
+                atten = torch.matmul(probs, v)
 
         # Update cache
         if use_cache and cache is not None and is_decode:
@@ -367,3 +333,6 @@ class MultiHeadAttention(nn.Module):
         sum_exp = scale_old * sum_exp + exp_new.sum(dim=-1, keepdim=True)
         out = scale_old * out + torch.matmul(exp_new, v_exp)
         return new_max, sum_exp, out
+
+    def set_sparse_selector(self, selector: SparseSelector):
+        self.sparse_selector = selector

@@ -1,7 +1,7 @@
 import pytest
 import torch
 
-from ai_playground.models.transformer.attention import MultiHeadAttention
+from ai_playground.models.attention import MultiHeadAttention
 from ai_playground.inference.cache import KVCache, PagedKVCache
 from ai_playground.inference.cache.sparse_kv_cache import SparseKVCache
 
