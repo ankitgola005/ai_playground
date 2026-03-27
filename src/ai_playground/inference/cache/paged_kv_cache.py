@@ -202,3 +202,57 @@ class PagedKVCache(BaseKVCache):
         self.blocks_v.clear()
         self.total_tokens = 0
         self._alloc_new_block()
+
+    def gather(self, idx: torch.Tensor) -> tuple[torch.Tensor, torch.Tensor]:
+        """
+        Gather KV for given token indices.
+
+        Args:
+            idx: (B, H, T_q, K) global token indices
+
+        Returns:
+            k_sel, v_sel: (B, H, T_q, K, D)
+        """
+        B, H, T_q, K = idx.shape
+        D = self.head_dim
+
+        device = idx.device
+
+        # map to block + offset
+        block_id = idx // self.block_size
+        offset = idx % self.block_size
+
+        # prepare output
+        k_sel = torch.empty(B, H, T_q, K, D, device=device, dtype=self.dtype)
+        v_sel = torch.empty_like(k_sel)
+
+        # iterate blocks (clean + safe, optimize later if needed)
+        for b_id, (k_block, v_block) in enumerate(self.iter_kv()):
+            # k_block: (B, H, T_block, D)
+
+            mask = block_id == b_id  # (B, H, T_q, K)
+            if not mask.any():
+                continue
+
+            # get offsets for this block
+            off = offset[mask]  # (N,)
+
+            # gather values
+            k_vals = k_block.reshape(-1, k_block.shape[2], D)
+            v_vals = v_block.reshape(-1, v_block.shape[2], D)
+
+            # flatten B,H dims for indexing
+            bh_idx = torch.nonzero(mask, as_tuple=False)[:, :2]  # (N, 2)
+
+            b_idx = bh_idx[:, 0]
+            h_idx = bh_idx[:, 1]
+
+            # gather per element
+            gathered_k = k_block[b_idx, h_idx, off]  # (N, D)
+            gathered_v = v_block[b_idx, h_idx, off]  # (N, D)
+
+            # place into output
+            k_sel[mask] = gathered_k
+            v_sel[mask] = gathered_v
+
+        return k_sel, v_sel

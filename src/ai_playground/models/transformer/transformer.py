@@ -59,6 +59,7 @@ class TransformerBlock(nn.Module):
         attn_dropout: float,
         residual_dropout: float,
         ffn_dropout: float,
+        sparse_selector: str | None = "topk",
     ):
         """
         Initialize a Transformer block.
@@ -73,6 +74,7 @@ class TransformerBlock(nn.Module):
             attn_dropout (float): Dropout probability for attention.
             residual_dropout (float): Dropout probability for residual connections.
             ffn_dropout (float): Dropout probability for feedforward network.
+            sparse_selector (str): Select sparsity method (topk / strided).
         """
         super().__init__()
         self.attention = MultiHeadAttention(
@@ -84,6 +86,11 @@ class TransformerBlock(nn.Module):
             attn_droupout=attn_dropout,
             residual_droupout=residual_dropout,
         )
+        if sparse_selector == "topk":
+            from ai_playground.models.attention import TopKSelector
+
+            self.attention.set_sparse_selector(TopKSelector(1))
+
         self.ffn = FFN(embed_dim, hidden_dim, ffn_dropout)
         self.linear1 = nn.LayerNorm(embed_dim)
         self.linear2 = nn.LayerNorm(embed_dim)

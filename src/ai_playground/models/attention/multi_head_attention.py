@@ -5,7 +5,8 @@ import torch.nn.functional as F
 from typing import Tuple, TYPE_CHECKING
 
 if TYPE_CHECKING:
-    from ai_playground.inference.cache import BaseKVCache, SparseSelector
+    from ai_playground.inference.cache import BaseKVCache
+    from ai_playground.models.attention import SparseSelector
 
 
 class MultiHeadAttention(nn.Module):
@@ -171,25 +172,27 @@ class MultiHeadAttention(nn.Module):
 
             if self.sparse_selector is not None:
                 idx = self.sparse_selector.select(q, k, scores)
-                D = k.size(-1)
 
-                # k_exp = k.unsqueeze(2).expand(-1, -1, q.size(2), -1, -1)
+                D = k.size(-1)
+                k_exp = k.unsqueeze(2).expand(-1, -1, q.size(2), -1, -1)
                 v_exp = v.unsqueeze(2).expand(-1, -1, q.size(2), -1, -1)
 
-                # k_sel = torch.gather(
-                #     k_exp,
-                #     3,
-                #     idx.unsqueeze(-1).expand(-1, -1, -1, -1, D),
-                # )
+                k_sel = torch.gather(
+                    k_exp,
+                    3,
+                    idx.unsqueeze(-1).expand(-1, -1, -1, -1, D),
+                )
                 v_sel = torch.gather(
                     v_exp,
                     3,
                     idx.unsqueeze(-1).expand(-1, -1, -1, -1, D),
                 )
+
                 scores_sel = torch.gather(scores, -1, idx)
 
                 probs = torch.softmax(scores_sel, dim=-1)
                 probs = self.attn_dropout(probs)
+
                 atten = torch.sum(probs.unsqueeze(-1) * v_sel, dim=-2)
             else:
                 probs = torch.softmax(scores, dim=-1)
@@ -249,6 +252,7 @@ class MultiHeadAttention(nn.Module):
 
         return k, v
 
+    @torch._dynamo.disable
     def blockwise_decode_attention(
         self,
         q: torch.Tensor,
@@ -287,8 +291,21 @@ class MultiHeadAttention(nn.Module):
         sum_exp = torch.zeros_like(max_score)  # runnign averaging denominator
         out = torch.zeros_like(q)  # running weighted values
 
+        blocks = list(cache.iter_kv())
+        if self.sparse_selector is not None:
+            scored_blocks = []
+            for i, (k_block, _) in enumerate(blocks):
+                k_exp, _ = self.expand_kv(k_block, k_block, self.group_size)
+                scores = torch.matmul(q, k_exp.transpose(-2, -1)) * self.scale
+                score = scores.amax(dim=(-1, -2)).mean().item()
+                scored_blocks.append((score, i))
+            scored_blocks.sort(reverse=True)
+            topk = self.sparse_selector.topk
+            selected_idx = [i for (_, i) in scored_blocks[:topk]]
+            blocks = [blocks[i] for i in selected_idx]
+
         # iterate cached KV
-        for k_block, v_block in cache.iter_kv():
+        for k_block, v_block in blocks:
             # Expand KV heads
             k_exp, v_exp = self.expand_kv(k_block, v_block, self.group_size)
             scores = torch.matmul(q, k_exp.transpose(-2, -1)) * self.scale

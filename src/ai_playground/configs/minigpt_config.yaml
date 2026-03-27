@@ -14,12 +14,12 @@ model:
     hidden_dim: 1024
     use_kv_cache: true
     n_kv_head: 2
-    use_flash_attention: true
+    use_flash_attention: false
     ffn_dropout: 0.1
     attn_dropout: 0.1
     residual_dropout: 0.1
     use_kv_cache: true
-    kv_cache_max_len: 1024
+    kv_cache_max_len: 4096
     use_paged_kv_cache: true
     paged_kv_cache_block_size: 128
 
