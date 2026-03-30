@@ -78,18 +78,26 @@ class Generator:
                 past_key_values = model.init_kv_cache(B, device=self.device)
                 assert past_key_values is not None
 
-                for b in range(B):
-                    tokens = torch.tensor(token_list[b], device=self.device).unsqueeze(
-                        0
-                    )
+                # For paged KV cache, just pass full batch at once
+                batch_tokens = torch.nn.utils.rnn.pad_sequence(
+                    [torch.tensor(t, device=self.device) for t in token_list],
+                    batch_first=True,
+                    padding_value=self.tokenizer.eos_token_id,
+                )
+                model(batch_tokens, past_key_values=past_key_values, use_cache=True)
+                # For Contig KV Cache
+                # for b in range(B):
+                #     tokens = torch.tensor(token_list[b], device=self.device).unsqueeze(
+                #         0
+                #     )
 
-                    model(
-                        tokens,
-                        past_key_values=[
-                            pkv.slice_batch(b, b + 1) for pkv in past_key_values
-                        ],
-                        use_cache=True,
-                    )
+                #     model(
+                #         tokens,
+                #         past_key_values=[
+                #             pkv.slice_batch(b, b + 1) for pkv in past_key_values
+                #         ],
+                #         use_cache=True,
+                #     )
 
             if self.device.type == "cuda":
                 torch.cuda.synchronize()
