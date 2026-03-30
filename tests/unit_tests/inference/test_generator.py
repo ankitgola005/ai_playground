@@ -189,9 +189,28 @@ def test_deterministic_generation(make_model, tokenizer):
     model = make_model()
     generator = Generator(model, tokenizer, device=torch.device("cpu"))
 
-    out1, _ = generator.generate(["hello"], max_tokens=5)
+    out1, _ = generator.generate(["hello"], max_tokens=5, temperature=0.0)
 
     torch.manual_seed(42)
-    out2, _ = generator.generate(["hello"], max_tokens=5)
+    out2, _ = generator.generate(["hello"], max_tokens=5, temperature=0.0)
 
     assert out1 == out2
+
+
+def test_sampling_changes_output(make_model, tokenizer):
+    model = make_model()
+    generator = Generator(model, tokenizer, device=torch.device("cpu"))
+
+    out1, _ = generator.generate(["hello"], max_tokens=10, temperature=1.0)
+    out2, _ = generator.generate(["hello"], max_tokens=10, temperature=1.0)
+
+    assert out1 != out2
+
+
+def test_top_k_runs(make_model, tokenizer):
+    model = make_model()
+    generator = Generator(model, tokenizer, device=torch.device("cpu"))
+
+    outputs, _ = generator.generate(["hello"], max_tokens=5, topk=5)
+
+    assert len(outputs) == 1

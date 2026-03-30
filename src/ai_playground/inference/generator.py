@@ -25,6 +25,8 @@ class Generator:
         prompts: List[str],
         max_tokens: int = 100,
         use_cache: bool = True,
+        temperature: float = 1.0,
+        topk: int | None = None,
     ) -> Tuple[List[str], Dict[str, float]]:
         """
         Generate text continuations for a batch of prompts.
@@ -33,6 +35,8 @@ class Generator:
             prompts (List[str]): Input prompt strings.
             max_tokens (int): Number of tokens to generate.
             use_cache (bool): Whether to use KV caching.
+            temperature (float):
+            topk (Optional[int]): Sample top k max probs in generation
 
         Returns:
             Tuple:
@@ -113,7 +117,7 @@ class Generator:
                     use_cache=use_cache,
                 )
 
-                next_token = self.sample(logits)
+                next_token = self.sample(logits, temperature, topk)
 
                 last_tokens = next_token
 
@@ -135,17 +139,23 @@ class Generator:
         texts = [self.tokenizer.decode(toks) for toks in output_tokens]
         return texts, self.time_dict
 
-    def sample(self, logits: torch.Tensor) -> torch.Tensor:
-        """
-        Greedy sampling from logits.
+    def sample(self, logits, temperature=1.0, top_k=None):
+        logits = logits[:, -1, :]  # (B, V)
 
-        Args:
-            logits (Tensor): (B, T, C)
+        if temperature == 0:
+            return torch.argmax(logits, dim=-1, keepdim=True)
 
-        Returns:
-            Tensor: Next tokens (B, 1)
-        """
-        return torch.argmax(logits[:, -1, :], dim=-1).unsqueeze(1)
+        logits = logits / temperature
+
+        if top_k is not None:
+            values, _ = torch.topk(logits, top_k)
+            min_val = values[:, -1].unsqueeze(-1)
+            logits = torch.where(
+                logits < min_val, torch.full_like(logits, -float("inf")), logits
+            )
+
+        probs = torch.softmax(logits, dim=-1)
+        return torch.multinomial(probs, num_samples=1)
 
     def time_dict_reset(self) -> None:
         """Reset timing statistics."""
