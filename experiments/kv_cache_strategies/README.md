@@ -18,7 +18,7 @@
 From the experiment folder:
 
 ```bash
-python -u kv_cache_fragmentation.py
+python -u kv_fragmentation.py
 ```
 
 **Key parameters:**
