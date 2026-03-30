@@ -25,7 +25,15 @@ class CharTokenizer:
         chars = sorted(set(text))
         self.stoi: Dict[str, int] = {ch: i for i, ch in enumerate(chars)}
         self.itos: Dict[int, str] = {i: ch for i, ch in enumerate(chars)}
-        self.vocab_size: int = len(chars)
+
+        # Add EOS token
+        self.eos_token = "<EOS>"
+        self.eos_token_id = len(self.stoi)
+
+        self.stoi[self.eos_token] = self.eos_token_id
+        self.itos[self.eos_token_id] = self.eos_token
+
+        self.vocab_size: int = len(self.stoi)
 
     def encode(self, text: str) -> List[int]:
         """

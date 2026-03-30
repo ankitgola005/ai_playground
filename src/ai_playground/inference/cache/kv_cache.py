@@ -87,6 +87,27 @@ class KVCache(BaseKVCache):
         """
         yield self.k[:, :, : self.idx], self.v[:, :, : self.idx]
 
+    def slice_batch(self, start: int, end: int) -> "KVCache":
+        """
+        Return a view of the KV cache for batch indices [start:end].
+
+        Args:
+            start(int): Start of slice
+            end(int): end of slice
+
+        Returns:
+            A view of KV cache
+        """
+
+        new_cache = KVCache.__new__(KVCache)  # avoid reallocation
+
+        new_cache.k = self.k[start:end]
+        new_cache.v = self.v[start:end]
+        new_cache.idx = self.idx
+        new_cache.max_len = self.max_len
+
+        return new_cache
+
     def reset(self) -> None:
         """Clear the cache."""
         self.idx = 0

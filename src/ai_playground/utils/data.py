@@ -58,10 +58,27 @@ def build_data_pipeline(
 
     # Tokenize
     tokenizer = CharTokenizer(text)
-    encoded = torch.tensor(tokenizer.encode(text), dtype=torch.long)
+
+    lines = text.split("\n")
+    all_tokens = []
+    for line in lines:
+        tokens = tokenizer.encode(line)
+        if len(tokens) > 0:
+            all_tokens.extend(tokens + [tokenizer.eos_token_id])
+    encoded = torch.tensor(all_tokens, dtype=torch.long)
 
     # Split
-    train_data, val_data = dataset.train_val_split(encoded, split=data_config.split)
+    split_idx = int(len(encoded) * data_config.split)
+    while encoded[split_idx] != tokenizer.eos_token_id:
+        split_idx += 1
+
+    # If no EOS found, fallback
+    if split_idx == len(encoded):
+        split_idx = int(len(encoded) * data_config.split)
+
+    train_data = encoded[:split_idx]
+    val_data = encoded[split_idx:]
+    # train_data, val_data = dataset.train_val_split(encoded, split=data_config.split)
 
     # Build dataloaders
     train_loader = dataset.build_dataloader(

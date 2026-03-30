@@ -106,3 +106,92 @@ def test_output_length_increases(make_model, tokenizer):
 
     # crude check: length increases
     assert len(outputs[0]) >= len(prompt)
+
+
+def test_generator_stops_on_eos(make_model, tokenizer):
+    model = make_model()
+
+    # Force model to always output EOS
+    class DummyModel(model.__class__):
+        def forward(self, idx, **kwargs):
+            B, T = idx.shape
+            vocab_size = self.head.out_features
+            logits = torch.zeros(B, T, vocab_size)
+            logits[..., tokenizer.eos_token_id] = 100
+            return logits, None, kwargs.get("past_key_values")
+
+    dummy_model = DummyModel(model.model_config, tokenizer.vocab_size, 16)
+    generator = Generator(dummy_model, tokenizer, device=torch.device("cpu"))
+
+    outputs, _ = generator.generate(["hello"], max_tokens=50)
+
+    # Should stop early (not reach max_tokens)
+    assert len(outputs[0]) < len("hello") + 50
+
+
+def test_cache_vs_no_cache_consistency(make_model, tokenizer):
+    torch.manual_seed(0)
+    model = make_model()
+    generator = Generator(model, tokenizer, device=torch.device("cpu"))
+    out_no_cache, _ = generator.generate(
+        ["hello world"], max_tokens=10, use_cache=False
+    )
+
+    torch.manual_seed(0)
+    out_cache, _ = generator.generate(["hello world"], max_tokens=10, use_cache=True)
+    assert len(out_no_cache[0]) == len(out_cache[0])
+
+
+def test_variable_length_prompts(make_model, tokenizer):
+    model = make_model()
+    generator = Generator(model, tokenizer, device=torch.device("cpu"))
+
+    outputs, _ = generator.generate(
+        ["hi", "this is a much longer prompt"],
+        max_tokens=5,
+    )
+
+    assert len(outputs) == 2
+
+
+def test_empty_prompt(make_model, tokenizer):
+    model = make_model()
+    generator = Generator(model, tokenizer, device=torch.device("cpu"))
+
+    outputs, _ = generator.generate([""], max_tokens=5)
+
+    assert len(outputs) == 1
+
+
+def test_zero_max_tokens(make_model, tokenizer):
+    model = make_model()
+    generator = Generator(model, tokenizer, device=torch.device("cpu"))
+
+    prompt = "hello"
+    outputs, _ = generator.generate([prompt], max_tokens=0)
+
+    assert outputs[0].startswith(prompt)
+
+
+def test_kv_cache_progression(make_model, tokenizer):
+    model = make_model()
+    generator = Generator(model, tokenizer, device=torch.device("cpu"))
+
+    _, stats = generator.generate(["hello"], max_tokens=5, use_cache=True)
+
+    # Just ensure decode ran
+    assert stats["decode_time"] > 0
+
+
+def test_deterministic_generation(make_model, tokenizer):
+    torch.manual_seed(42)
+
+    model = make_model()
+    generator = Generator(model, tokenizer, device=torch.device("cpu"))
+
+    out1, _ = generator.generate(["hello"], max_tokens=5)
+
+    torch.manual_seed(42)
+    out2, _ = generator.generate(["hello"], max_tokens=5)
+
+    assert out1 == out2

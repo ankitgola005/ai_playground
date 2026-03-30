@@ -5,39 +5,16 @@ import torch
 import torch.nn as nn
 
 if TYPE_CHECKING:
-    from typing import List, Tuple, Dict, Optional
+    from typing import List, Tuple, Dict
 
 
 class Generator:
-    """
-    Autoregressive text generator for GPT-style models.
-
-    Handles:
-    - Prompt tokenization
-    - KV cache prefill (optional)
-    - Token-by-token decoding
-    - Basic timing (prefill vs decode)
-
-    This class is intentionally self-contained and does NOT depend on Trainer.
-    """
-
-    def __init__(
-        self,
-        model: nn.Module,
-        tokenizer,
-        device: torch.device,
-    ) -> None:
-        """
-        Args:
-            model (nn.Module): Language model (expects GPT-style forward).
-            tokenizer: Tokenizer with encode/decode methods.
-            device (torch.device): Device for inference.
-        """
+    def __init__(self, model: nn.Module, tokenizer, device: torch.device) -> None:
         self.model = model
         self.tokenizer = tokenizer
         self.device = device
 
-        self.time_dict: Dict[str, float] = {
+        self.time_dict = {
             "ctx_len": 0.0,
             "prefill_time": 0.0,
             "decode_time": 0.0,
@@ -46,7 +23,7 @@ class Generator:
     def generate(
         self,
         prompts: List[str],
-        max_tokens: int = 500,
+        max_tokens: int = 100,
         use_cache: bool = True,
     ) -> Tuple[List[str], Dict[str, float]]:
         """
@@ -64,73 +41,98 @@ class Generator:
         """
         self.time_dict_reset()
 
-        token_list: List[List[int]] = [self.tokenizer.encode(p) for p in prompts]
-        self.time_dict["ctx_len"] = len(token_list[0])
+        token_list: List = []
+
+        for p in prompts:
+            tokens = self.tokenizer.encode(p)
+
+            # handle empty prompt
+            if len(tokens) == 0:
+                tokens = [self.tokenizer.eos_token_id]
+
+            # truncate
+            tokens = tokens[-self.model.block_size :]
+
+            token_list.append(tokens)
+
+        B = len(token_list)
+
+        self.time_dict["ctx_len"] = max(len(t) for t in token_list)
 
         model = self.model
         model.eval()
 
         with torch.inference_mode():
-            B: int = len(prompts)
-            max_len: int = max(len(t) for t in token_list)
-
-            # Build padded batch
-            batch_context = torch.zeros(
-                B, max_len, dtype=torch.long, device=self.device
-            )
-
-            for i, tokens in enumerate(token_list):
-                batch_context[i, : len(tokens)] = torch.tensor(
-                    tokens, device=self.device
-                )
-
-            past_key_values: Optional[List] = None
-
-            # Prefill
+            # Prefill (per sample)
             if self.device.type == "cuda":
                 torch.cuda.synchronize()
-            start_time = time.perf_counter()
+            start = time.perf_counter()
+
+            past_key_values: List | None = None
 
             if use_cache:
                 past_key_values = model.init_kv_cache(B, device=self.device)
+                assert past_key_values is not None
 
-                # Fill cache with full context
-                model(
-                    batch_context,
-                    past_key_values=past_key_values,
-                    use_cache=True,
-                )
+                for b in range(B):
+                    tokens = torch.tensor(token_list[b], device=self.device).unsqueeze(
+                        0
+                    )
 
-            output = batch_context
+                    model(
+                        tokens,
+                        past_key_values=[
+                            pkv.slice_batch(b, b + 1) for pkv in past_key_values
+                        ],
+                        use_cache=True,
+                    )
 
             if self.device.type == "cuda":
                 torch.cuda.synchronize()
-            self.time_dict["prefill_time"] = time.perf_counter() - start_time
+            self.time_dict["prefill_time"] = time.perf_counter() - start
+
+            # Initialize decode state
+            last_tokens = torch.tensor(
+                [t[-1] for t in token_list],
+                device=self.device,
+            ).unsqueeze(1)
+
+            output_tokens = [list(t) for t in token_list]
+            finished = torch.zeros(B, dtype=torch.bool, device=self.device)
 
             # Decode
             if self.device.type == "cuda":
                 torch.cuda.synchronize()
-            start_time = time.perf_counter()
+            start = time.perf_counter()
 
             for _ in range(max_tokens):
+
                 logits, _, past_key_values = model(
-                    output[:, -1:],
+                    last_tokens,
                     past_key_values=past_key_values,
                     use_cache=use_cache,
                 )
 
                 next_token = self.sample(logits)
 
-                # Safety check
-                assert next_token.dim() == 2, f"Expected (B,1), got {next_token.shape}"
+                last_tokens = next_token
 
-                output = torch.cat([output, next_token], dim=1)
+                for i in range(B):
+                    if not finished[i]:
+                        token_id = next_token[i].item()
+                        output_tokens[i].append(token_id)
+
+                        if token_id == self.tokenizer.eos_token_id:
+                            finished[i] = True
+
+                if finished.all():
+                    break
 
             if self.device.type == "cuda":
                 torch.cuda.synchronize()
-            self.time_dict["decode_time"] = time.perf_counter() - start_time
+            self.time_dict["decode_time"] = time.perf_counter() - start
 
-        texts = [self.tokenizer.decode(o.tolist()) for o in output]
+        texts = [self.tokenizer.decode(toks) for toks in output_tokens]
         return texts, self.time_dict
 
     def sample(self, logits: torch.Tensor) -> torch.Tensor:

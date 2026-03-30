@@ -37,11 +37,11 @@ class MiniGPT(nn.Module):
         """
         super().__init__()
         self.model_config = model_config
-
+        self.block_size = block_size
         # Embeddings
         self.embeddings: EmbeddingWrapper = EmbeddingWrapper(
             vocab_size,
-            block_size,
+            self.block_size,
             int(self.model_config.model_kwargs["n_embed"]),
         )
 
@@ -52,7 +52,7 @@ class MiniGPT(nn.Module):
                     embed_dim=int(self.model_config.model_kwargs["n_embed"]),
                     n_head=int(self.model_config.model_kwargs["n_head"]),
                     n_kv_head=int(self.model_config.model_kwargs["n_kv_head"]),
-                    block_size=block_size,
+                    block_size=self.block_size,
                     hidden_dim=int(self.model_config.model_kwargs["hidden_dim"]),
                     use_flash_attention=bool(
                         self.model_config.model_kwargs["use_flash_attention"]
