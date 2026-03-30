@@ -10,7 +10,7 @@ tokenizer, _, _ = build_data_pipeline(cfg.data, batch_size=cfg.trainer.batch_siz
 model = build_model(cfg.model)(cfg.model, tokenizer.vocab_size, cfg.data.block_size)
 model = model.to(device)
 model.eval()
-generator = Generator(model, tokenizer, device=device)
+generator = Generator(cfg.trainer, model, tokenizer, device=device)
 
 prompts = [
     "",  # empty

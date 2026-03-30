@@ -11,6 +11,8 @@ setup(
         "torch",
         "numpy",
         "pyyaml",
+        "pydantic",
+        "uvicorn",
     ],
     python_requires=">=3.14",
     entry_points={},

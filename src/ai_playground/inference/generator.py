@@ -4,21 +4,42 @@ from typing import TYPE_CHECKING
 import torch
 import torch.nn as nn
 
+from ai_playground.utils import load_checkpoint
+
 if TYPE_CHECKING:
     from typing import List, Tuple, Dict
+    from ai_playground.configs import TrainerConfig
 
 
 class Generator:
-    def __init__(self, model: nn.Module, tokenizer, device: torch.device) -> None:
+    def __init__(
+        self, config: TrainerConfig, model: nn.Module, tokenizer, device: torch.device
+    ) -> None:
         self.model = model
         self.tokenizer = tokenizer
         self.device = device
+        self.config = config
+        step = self._maybe_load_checkpoints()
+        if step < 0:
+            print("No checkpoint found. Generation will be garbage")
+        else:
+            print(f"Checkpoints found for step: {step}")
 
         self.time_dict = {
             "ctx_len": 0.0,
             "prefill_time": 0.0,
             "decode_time": 0.0,
         }
+
+    def _maybe_load_checkpoints(self):
+        return load_checkpoint(
+            trainer_config=self.config,
+            model=self.model,
+            device=self.device,
+            optimizer=None,
+            scheduler=None,
+            scaler=None,
+        )
 
     def generate(
         self,
