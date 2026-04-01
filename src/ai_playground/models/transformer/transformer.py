@@ -90,9 +90,13 @@ class TransformerBlock(nn.Module):
             residual_droupout=residual_dropout,
         )
         if sparse_selector == "topk":
-            from ai_playground.models.attention import TopKSelector
+            from ai_playground.models.attention.sparse_selector import TopKSelector
 
             self.attention.set_sparse_selector(TopKSelector(1))
+        elif sparse_selector == "strided":
+            from ai_playground.models.attention.sparse_selector import StrideSelector
+
+            self.attention.set_sparse_selector(StrideSelector(2))
 
         self.num_experts = num_experts
         if self.num_experts <= 0:

@@ -3,10 +3,11 @@ from torch import nn
 import torch.nn.functional as F
 
 from typing import Tuple, TYPE_CHECKING
+from ai_playground.models.attention.sparse_selector import TopKSelector, StrideSelector
 
 if TYPE_CHECKING:
     from ai_playground.inference.cache import BaseKVCache
-    from ai_playground.models.attention import SparseSelector
+    from ai_playground.models.attention.sparse_selector import SparseSelector
 
 
 class MultiHeadAttention(nn.Module):
@@ -285,42 +286,76 @@ class MultiHeadAttention(nn.Module):
             - Avoids large intermediate tensors across full sequence length
             - Final division normalizes accumulated weighted values
         """
-        max_score = torch.full_like(
-            q[..., :1], float("-inf")
-        )  # Running max for stability
-        sum_exp = torch.zeros_like(max_score)  # runnign averaging denominator
-        out = torch.zeros_like(q)  # running weighted values
+        max_score = torch.full_like(q[..., :1], float("-inf"))
+        sum_exp = torch.zeros_like(max_score)
+        out = torch.zeros_like(q)
 
+        # Select blocks
         blocks = list(cache.iter_kv())
-        if self.sparse_selector is not None:
-            scored_blocks = []
-            for i, (k_block, _) in enumerate(blocks):
-                k_exp, _ = self.expand_kv(k_block, k_block, self.group_size)
-                scores = torch.matmul(q, k_exp.transpose(-2, -1)) * self.scale
-                score = scores.amax(dim=(-1, -2)).mean().item()
-                scored_blocks.append((score, i))
-            scored_blocks.sort(reverse=True)
-            topk = self.sparse_selector.topk
-            selected_idx = [i for (_, i) in scored_blocks[:topk]]
-            blocks = [blocks[i] for i in selected_idx]
 
-        # iterate cached KV
+        if self.sparse_selector is not None:
+            blocks = self._select_blocks(q, blocks)
+
+        # Attention over cached blocks
         for k_block, v_block in blocks:
-            # Expand KV heads
             k_exp, v_exp = self.expand_kv(k_block, v_block, self.group_size)
             scores = torch.matmul(q, k_exp.transpose(-2, -1)) * self.scale
+
             max_score, sum_exp, out = self._streaming_softmax_update(
                 max_score, sum_exp, out, scores, v_exp
             )
 
-        # treat current token as final chunk
+        # Current token
         k_exp, v_exp = self.expand_kv(k_cur, v_cur, self.group_size)
         scores = torch.matmul(q, k_exp.transpose(-2, -1)) * self.scale
+
         max_score, sum_exp, out = self._streaming_softmax_update(
             max_score, sum_exp, out, scores, v_exp
         )
 
         return out / sum_exp
+
+    def _select_blocks(self, q: torch.Tensor, blocks):
+        """
+        Handles sparse block selection logic.
+
+        Args:
+            q (torch.Tensor): Query tensor
+            blocks
+
+        Returns:
+            selected blocks
+        """
+
+        # Top-K Selector
+        if isinstance(self.sparse_selector, TopKSelector):
+            scored_blocks = []
+            expanded_blocks = []  # avoid recompute
+
+            for i, (k_block, v_block) in enumerate(blocks):
+                k_exp, v_exp = self.expand_kv(k_block, v_block, self.group_size)
+
+                scores = torch.matmul(q, k_exp.transpose(-2, -1)) * self.scale
+                score = scores.amax(dim=(-1, -2)).mean()  # stays on GPU
+
+                scored_blocks.append((score, i))
+                expanded_blocks.append((k_exp, v_exp))
+
+            # sort by score
+            scored_blocks.sort(key=lambda x: x[0], reverse=True)
+            topk = self.sparse_selector.topk
+            selected_idx = [i for (_, i) in scored_blocks[:topk]]
+
+            # reuse expanded KV
+            return [expanded_blocks[i] for i in selected_idx]
+
+        # Stride Selector
+        elif isinstance(self.sparse_selector, StrideSelector):
+            stride = self.sparse_selector.stride
+            return [blocks[i] for i in range(0, len(blocks), stride)]
+
+        # Fallback
+        return blocks
 
     def _streaming_softmax_update(
         self,
