@@ -94,7 +94,10 @@ class Trainer:
 
         self.use_progress_bar: bool = config.trainer.use_progress_bar
         self.progress_bar: tqdm | None = None
-        self.progress_bar_metrics = BASELINE_METRICS if self.use_progress_bar else None
+        self.progress_bar_metrics_names = (
+            BASELINE_METRICS if self.use_progress_bar else set()
+        )
+        self.progress_bar_metrics = {}
 
         self.use_profiler: bool = config.trainer.use_profiler
         self.profiler: Profiler | None = None
@@ -361,10 +364,13 @@ class Trainer:
 
         # Auxillary metrics to log
         if aux_metrics:
+            print(f"{aux_metrics=}")
             if aux_metrics and "moe" in self.logger_metrics:
+                print("1.1.1.1")
                 moe_stats = aux_metrics.get("moe")
                 if isinstance(moe_stats, dict):
                     for key, value in moe_stats.items():
+                        print(f"{key=}, {value=}")
                         if value is None:
                             continue
 
@@ -391,7 +397,8 @@ class Trainer:
         # Update tqdm / progress bar metrics
         if self.progress_bar_metrics is not None and self.progress_bar is not None:
             for key, value in metrics.items():
-                self.progress_bar_metrics[key] = value
+                if key in self.progress_bar_metrics_names:
+                    self.progress_bar_metrics[key] = value
             self.progress_bar.set_postfix(self.progress_bar_metrics)
 
         # Reset accumulators

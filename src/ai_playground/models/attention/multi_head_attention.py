@@ -253,6 +253,37 @@ class MultiHeadAttention(nn.Module):
 
         return k, v
 
+    def _compute_raw_scores(
+        self, q: torch.Tensor, k_block: torch.Tensor
+    ) -> torch.Tensor:
+        """
+        Compute attention scores between expanded queries and raw KV blocks.
+
+        Avoids materializing expanded KV tensors during block selection.
+
+        Args:
+            q (torch.Tensor): Query tensor of shape (B, H_q, 1, D)
+            k_block (torch.Tensor): Raw key block of shape (B, H_kv, T, D)
+
+        Returns:
+            torch.Tensor: Scores of shape (B, H_q, 1, T)
+        """
+        B, H_q, _, D = q.shape
+        H_kv = k_block.size(1)
+        group_size = self.group_size
+
+        assert H_q == H_kv * group_size
+        assert q.size(2) == 1, "Expected single-token query for block scoring"
+        assert k_block.dim() == 4, "k_block must be (B, H_kv, T, D)"
+
+        # k_t: (B, H_kv, 1, D, T) to align with grouped q
+        q = q.reshape(B, H_kv, group_size, 1, D)
+
+        # # k_t: (B, H_kv, 1, D, T) to align with grouped q
+        k_t = k_block.transpose(-2, -1).unsqueeze(2)
+        scores = torch.matmul(q, k_t) * self.scale
+        return scores.reshape(B, H_q, 1, k_block.size(2))
+
     @torch._dynamo.disable
     def blockwise_decode_attention(
         self,
@@ -330,24 +361,19 @@ class MultiHeadAttention(nn.Module):
         # Top-K Selector
         if isinstance(self.sparse_selector, TopKSelector):
             scored_blocks = []
-            expanded_blocks = []  # avoid recompute
 
             for i, (k_block, v_block) in enumerate(blocks):
-                k_exp, v_exp = self.expand_kv(k_block, v_block, self.group_size)
-
-                scores = torch.matmul(q, k_exp.transpose(-2, -1)) * self.scale
-                score = scores.amax(dim=(-1, -2)).mean()  # stays on GPU
+                scores = self._compute_raw_scores(q, k_block)
+                score = scores.amax(dim=(-1, -2)).mean()
 
                 scored_blocks.append((score, i))
-                expanded_blocks.append((k_exp, v_exp))
 
             # sort by score
             scored_blocks.sort(key=lambda x: x[0], reverse=True)
             topk = self.sparse_selector.topk
             selected_idx = [i for (_, i) in scored_blocks[:topk]]
 
-            # reuse expanded KV
-            return [expanded_blocks[i] for i in selected_idx]
+            return [blocks[i] for i in selected_idx]
 
         # Stride Selector
         elif isinstance(self.sparse_selector, StrideSelector):

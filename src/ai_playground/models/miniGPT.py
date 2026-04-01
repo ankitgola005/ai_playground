@@ -28,7 +28,13 @@ class MiniGPT(nn.Module):
         logging (bool): enable logging. Default False.
     """
 
-    def __init__(self, model_config: "ModelConfig", vocab_size: int, block_size: int, logging: bool = False):
+    def __init__(
+        self,
+        model_config: "ModelConfig",
+        vocab_size: int,
+        block_size: int,
+        logging: bool = False,
+    ):
         """
         Initialize MiniGPT.
 
@@ -65,7 +71,6 @@ class MiniGPT(nn.Module):
                     ),
                     ffn_dropout=float(self.model_config.model_kwargs["ffn_dropout"]),
                     moe_dropout=float(self.model_config.model_kwargs["moe_dropout"]),
-                    logging=logging,
                 )
                 for _ in range(int(self.model_config.model_kwargs["n_layer"]))
             ]
