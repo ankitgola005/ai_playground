@@ -64,3 +64,22 @@ class CharTokenizer:
             KeyError: If ID not in vocabulary
         """
         return "".join(self.itos[i] for i in ids if i != self.eos_token_id)
+
+    def state_dict(self) -> dict[str, object]:
+        return {
+            "stoi": self.stoi,
+            "itos": self.itos,
+            "eos_token_id": self.eos_token_id,
+            "eos_token": self.eos_token,
+            "vocab_size": self.vocab_size,
+        }
+
+    @classmethod
+    def from_state(cls, state: dict[str, object]) -> "CharTokenizer":
+        tokenizer = cls.__new__(cls)
+        tokenizer.stoi = state["stoi"]
+        tokenizer.itos = state["itos"]
+        tokenizer.eos_token_id = state["eos_token_id"]
+        tokenizer.eos_token = state["eos_token"]
+        tokenizer.vocab_size = state["vocab_size"]
+        return tokenizer

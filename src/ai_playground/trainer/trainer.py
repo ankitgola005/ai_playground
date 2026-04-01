@@ -78,6 +78,8 @@ class Trainer:
             else None
         )
 
+        self._prepared_models: dict[tuple[int, str], nn.Module] = {}
+
         self.warmup_steps: int = config.trainer.warmup_steps
         self.max_steps: int = config.trainer.max_steps
         self.save_interval: int = config.trainer.save_interval
@@ -142,8 +144,15 @@ class Trainer:
 
     def _prepare_model(self, model: nn.Module, stage: str = "train"):
         self.strategy.setup_environment(stage=stage)
+        cache_key = (id(model), stage)
+        if cache_key in self._prepared_models:
+            return self._prepared_models[cache_key]
+
+        model = self._unwrap_model(model)
         model = self.strategy.wrap_model(model, stage=stage)
-        return torch.compile(model) if self.compile else model
+        prepared_model = torch.compile(model) if self.compile else model
+        self._prepared_models[cache_key] = prepared_model
+        return prepared_model
 
     def _pre_fit(
         self,
