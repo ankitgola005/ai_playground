@@ -140,11 +140,13 @@ class Generator:
 
             for _ in range(max_tokens):
 
-                logits, _, past_key_values = model(
+                out = model(
                     last_tokens,
                     past_key_values=past_key_values,
                     use_cache=use_cache,
                 )
+                logits = out["logits"]
+                past_key_values = out["kv"]
 
                 next_token = self.sample(logits, temperature, topk)
 

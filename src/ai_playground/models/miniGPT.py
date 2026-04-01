@@ -8,7 +8,7 @@ from ai_playground.models.transformer.transformer import TransformerBlock
 from ai_playground.inference.cache import KVCache, PagedKVCache
 
 if TYPE_CHECKING:
-    from typing import Optional, List, Tuple
+    from typing import Optional, List, Dict, Any
     from ai_playground.configs import ModelConfig
 
 
@@ -57,11 +57,13 @@ class MiniGPT(nn.Module):
                     use_flash_attention=bool(
                         self.model_config.model_kwargs["use_flash_attention"]
                     ),
+                    num_experts=int(self.model_config.model_kwargs["num_experts"]),
                     attn_dropout=float(self.model_config.model_kwargs["attn_dropout"]),
                     residual_dropout=float(
                         self.model_config.model_kwargs["residual_dropout"]
                     ),
                     ffn_dropout=float(self.model_config.model_kwargs["ffn_dropout"]),
+                    moe_dropout=float(self.model_config.model_kwargs["moe_dropout"]),
                 )
                 for _ in range(int(self.model_config.model_kwargs["n_layer"]))
             ]
@@ -94,7 +96,7 @@ class MiniGPT(nn.Module):
         targets: Optional[torch.Tensor] = None,
         past_key_values: Optional[List] = None,
         use_cache: bool = False,
-    ) -> Tuple[torch.Tensor, Optional[torch.Tensor], Optional[List]]:
+    ) -> Dict[str, Any]:
         """
         Forward pass of MiniGPT.
 
@@ -114,9 +116,10 @@ class MiniGPT(nn.Module):
 
         # Transformer blocks
         new_past_key_values: List = []
+        aux_metrics: Dict | None = None
         for i, block in enumerate(self.transformer_blocks):
             pkv = past_key_values[i] if past_key_values is not None else None
-            x, present = block(x, past_key_values=pkv, use_cache=use_cache)
+            x, present, aux_metrics = block(x, past_key_values=pkv, use_cache=use_cache)
             if use_cache:
                 new_past_key_values.append(present)
 
@@ -125,14 +128,19 @@ class MiniGPT(nn.Module):
         logits: torch.Tensor = self.head(x)
 
         # Loss
-        loss: Optional[torch.Tensor] = None
+        loss: torch.Tensor | None = None
         if targets is not None:
             B, T, C = logits.shape
             logits_flat = logits.view(B * T, C)
             targets_flat = targets.view(B * T)
             loss = F.cross_entropy(logits_flat, targets_flat)
 
-        return logits, loss, new_past_key_values if use_cache else None
+        return {
+            "logits": logits,
+            "loss": loss,
+            "aux_metrics": aux_metrics,
+            "kv": new_past_key_values if use_cache else None,
+        }
 
     def init_kv_cache(self, B: int, device: str = "cuda") -> List:
         """

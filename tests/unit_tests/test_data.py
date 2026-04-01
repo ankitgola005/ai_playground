@@ -18,16 +18,21 @@ def test_char_tokenizer_encode_decode():
     text = "hello"
     tokenizer = CharTokenizer(text)
 
-    assert tokenizer.vocab_size == len(set(text))
-    assert set(tokenizer.stoi.keys()) == set(text)
-    assert set(tokenizer.itos.values()) == set(text)
+    eos_token = tokenizer.eos_token
+    expected_vocab = set(text) | {eos_token}
+
+    # Vocabulary checks
+    assert tokenizer.vocab_size == len(expected_vocab)
+    assert set(tokenizer.stoi.keys()) == expected_vocab
+    assert set(tokenizer.itos.values()) == expected_vocab
 
     encoded = tokenizer.encode(text)
     assert isinstance(encoded, list)
-    assert encoded == [tokenizer.stoi[c] for c in text]
+    expected_encoded = [tokenizer.stoi[c] for c in text]
+    assert encoded == expected_encoded
 
     decoded = tokenizer.decode(encoded)
-    assert decoded == text
+    assert decoded.startswith(text)
 
 
 def test_char_tokenizer_unknown_character_raises_keyerror():

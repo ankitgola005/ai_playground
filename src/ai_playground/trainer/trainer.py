@@ -1,5 +1,5 @@
 from contextlib import nullcontext
-from typing import Optional, TYPE_CHECKING, List
+from typing import TYPE_CHECKING, List, Dict, Any
 import time
 
 import torch
@@ -48,10 +48,10 @@ class Trainer:
         self,
         config: "Config",
         strategy: Parallel,
-        optimizer: Optional[Optimizer] = None,
+        optimizer: Optimizer | None = None,
     ):
-        self.optimizer: Optional[Optimizer] = optimizer
-        self.lr_scheduler: Optional[lr_scheduler.LambdaLR] = None
+        self.optimizer: Optimizer | None = optimizer
+        self.lr_scheduler: lr_scheduler.LambdaLR | None = None
 
         self.global_step: int = 0
         self.step_time_accumulator: float = 0.0
@@ -89,11 +89,11 @@ class Trainer:
         self.logger_metrics: set = set(BASELINE_METRICS)
 
         self.use_progress_bar: bool = config.trainer.use_progress_bar
-        self.progress_bar: Optional[tqdm] = None
+        self.progress_bar: tqdm | None = None
         self.progress_bar_metrics = BASELINE_METRICS if self.use_progress_bar else None
 
         self.use_profiler: bool = config.trainer.use_profiler
-        self.profiler: Optional[Profiler] = None
+        self.profiler: Profiler | None = None
         if self.use_profiler:
             assert self.config.trainer.log_dir is not None
             self.profiler = get_profiler(
@@ -103,7 +103,7 @@ class Trainer:
             )
 
         self.run_name: str = config.trainer.run_name
-        self.generator: Optional[Generator] = None
+        self.generator: Generator | None = None
         self.val_loss_history: List[dict] = []
         self.check_finite_grads: bool = False
 
@@ -142,7 +142,7 @@ class Trainer:
         self,
         model: nn.Module,
         train_dataloader: DataLoader,
-        val_dataloader: Optional[DataLoader],
+        val_dataloader: DataLoader | None,
     ):
         self.logger_manager.log_config(self.config.trainer)
 
@@ -173,7 +173,7 @@ class Trainer:
         self,
         model: nn.Module,
         train_dataloader: DataLoader,
-        val_dataloader: Optional[DataLoader],
+        val_dataloader: DataLoader | None,
     ):
         """
         Main training loop.
@@ -209,7 +209,7 @@ class Trainer:
                     start = time.perf_counter()
 
                     # Forward and backward pass
-                    logits, loss = self._train_step(
+                    logits, loss, aux_metrics = self._train_step(
                         model, xb, yb, self.optimizer, self.lr_scheduler
                     )
 
@@ -223,7 +223,7 @@ class Trainer:
                         self.profiler.step()
 
                     # Logging
-                    self._maybe_log(model, self.lr_scheduler, loss)
+                    self._maybe_log(model, self.lr_scheduler, loss, aux_metrics)
 
                     # Validation
                     self._maybe_validate(model, val_dataloader)
@@ -265,7 +265,11 @@ class Trainer:
             dtype=self.precision_dtype,
             enabled=self.use_amp,
         ):
-            logits, loss, _ = model(xb, yb)
+            out = model(xb, yb)
+            logits = out["logits"]
+            loss = out["loss"]
+            aux_metrics = out["aux_metrics"]
+
         if not torch.isfinite(loss):
             raise RuntimeError(
                 f"Non-finite loss detected at step {self.global_step}: {loss}"
@@ -300,9 +304,15 @@ class Trainer:
         self.global_step += 1
         if self.progress_bar is not None:
             self.progress_bar.update(1)
-        return logits, loss
+        return logits, loss, aux_metrics
 
-    def _maybe_log(self, model: nn.Module, scheduler, loss: torch.Tensor):
+    def _maybe_log(
+        self,
+        model: nn.Module,
+        scheduler,
+        loss: torch.Tensor,
+        aux_metrics: Dict[str, Any],
+    ):
         """Logs training metrics if we hit the logging interval."""
         if self.logger_manager.log_frequency <= 0:
             return
@@ -344,6 +354,25 @@ class Trainer:
             metrics["tps"] = tps
             metrics["avg_step_time"] = avg_step_time
             metrics["avg_data_time"] = avg_data_time
+
+        # Auxillary metrics to log
+        if aux_metrics:
+            if aux_metrics and "moe" in self.logger_metrics:
+                moe_stats = aux_metrics.get("moe")
+                if isinstance(moe_stats, dict):
+                    for key, value in moe_stats.items():
+                        if value is None:
+                            continue
+
+                        if torch.is_tensor(value):
+                            if value.numel() == 1:
+                                metrics[f"moe_{key}"] = value.item()
+                            else:
+                                # flatten if tensor is not singleton
+                                for i, v in enumerate(value):
+                                    metrics[f"moe_{key}_{i}"] = v.item()
+                        else:
+                            metrics[f"moe_{key}"] = value
 
         # Include CUDA memory metrics if on GPU
         if self.strategy.device_type == "cuda":
@@ -417,8 +446,8 @@ class Trainer:
         ):
             for xb, yb in val_dataloader:
                 xb, yb = xb.to(self.strategy.device), yb.to(self.strategy.device)
-                _, loss, _ = model(xb, yb)
-                total_loss += loss.detach() * xb.size(0)
+                out = model(xb, yb)
+                total_loss += out["loss"].detach() * xb.size(0)
                 count += xb.size(0)
             if was_training:
                 model.train()
@@ -452,7 +481,10 @@ class Trainer:
         model.eval()
 
         self.generator = Generator(
-            model=model, tokenizer=tokenizer, device=self.strategy.device
+            config=self.config.trainer,
+            model=model,
+            tokenizer=tokenizer,
+            device=self.strategy.device,
         )
 
         return self.generator.generate(
@@ -493,3 +525,77 @@ class Trainer:
         self.logger_manager.finalize()
         if self.progress_bar is not None:
             self.progress_bar.close()
+
+
+def test_train_step_returns_aux_metrics(trainer):
+    """Check that _train_step returns aux_metrics correctly."""
+
+    class AuxModel(DummyModel):
+        def forward(self, x, y):
+            out = self.lin(x)
+            loss = ((out - y) ** 2).mean()
+            return {
+                "logits": out,
+                "loss": loss,
+                "aux_metrics": {"accuracy": torch.tensor(0.8)},
+            }
+
+    model = AuxModel()
+    trainer.configure_optimizer_and_scheduler(model)
+    xb = torch.randn(2, 16)
+    yb = torch.randn(2, 16)
+
+    logits, loss, aux_metrics = trainer._train_step(
+        model, xb, yb, trainer.optimizer, trainer.lr_scheduler
+    )
+
+    assert isinstance(aux_metrics, dict)
+    assert "accuracy" in aux_metrics
+    assert torch.isclose(aux_metrics["accuracy"], torch.tensor(0.8))
+
+
+def test_train_step_with_moe_metrics(trainer, monkeypatch):
+    """Check that _train_step handles aux_metrics with 'moe' correctly."""
+
+    class MoeModel(DummyModel):
+        def forward(self, x, y):
+            out = self.lin(x)
+            loss = ((out - y) ** 2).mean()
+            return {
+                "logits": out,
+                "loss": loss,
+                "aux_metrics": {
+                    "moe": {"score": torch.tensor([1.0, 2.0]), "value": 42}
+                },
+            }
+
+    # Patch logger to capture metrics
+    captured_metrics = {}
+
+    class DummyLogger:
+        log_frequency = 1
+
+        def log_metrics(self, metrics, step=None):
+            captured_metrics.update(metrics)
+
+        def log_config(self, *a, **kw):
+            pass
+
+        def finalize(self):
+            pass
+
+    monkeypatch.setattr(trainer, "logger_manager", DummyLogger())
+
+    model = MoeModel()
+    trainer.configure_optimizer_and_scheduler(model)
+    xb = torch.randn(2, 16)
+    yb = torch.randn(2, 16)
+
+    logits, loss, aux_metrics = trainer._train_step(
+        model, xb, yb, trainer.optimizer, trainer.lr_scheduler
+    )
+
+    assert "moe" in aux_metrics
+    assert "moe_score_0" in captured_metrics
+    assert "moe_score_1" in captured_metrics
+    assert "moe_value" in captured_metrics

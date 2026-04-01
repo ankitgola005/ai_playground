@@ -15,6 +15,8 @@ model:
     use_kv_cache: true
     n_kv_head: 2
     use_flash_attention: false
+    num_experts: 0
+    moe_dropout: 0.0
     ffn_dropout: 0.1
     attn_dropout: 0.1
     residual_dropout: 0.1

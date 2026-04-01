@@ -2,10 +2,11 @@ import torch.nn as nn
 from typing import TYPE_CHECKING
 
 from ai_playground.models.attention import MultiHeadAttention
+from ai_playground.models.moe import MoELayer
 
 if TYPE_CHECKING:
     import torch
-    from typing import Optional, Tuple, List
+    from typing import Tuple, List, Dict, Any
 
 
 class FFN(nn.Module):
@@ -56,9 +57,11 @@ class TransformerBlock(nn.Module):
         block_size: int,
         hidden_dim: int,
         use_flash_attention: bool,
+        num_experts: int,
         attn_dropout: float,
         residual_dropout: float,
         ffn_dropout: float,
+        moe_dropout: float,
         sparse_selector: str | None = "topk",
     ):
         """
@@ -91,7 +94,17 @@ class TransformerBlock(nn.Module):
 
             self.attention.set_sparse_selector(TopKSelector(1))
 
-        self.ffn = FFN(embed_dim, hidden_dim, ffn_dropout)
+        self.num_experts = num_experts
+        if self.num_experts <= 0:
+            self.ffn = FFN(embed_dim, hidden_dim, ffn_dropout)
+        else:
+            self.ffn = MoELayer(
+                d_model=embed_dim,
+                d_ff=hidden_dim,
+                num_experts=self.num_experts,
+                dropout=moe_dropout,
+            )
+
         self.linear1 = nn.LayerNorm(embed_dim)
         self.linear2 = nn.LayerNorm(embed_dim)
 
@@ -100,7 +113,7 @@ class TransformerBlock(nn.Module):
         x: torch.Tensor,
         past_key_values: List | None = None,
         use_cache: bool = False,
-    ) -> Tuple[torch.Tensor, Optional[List]]:
+    ) -> Tuple[torch.Tensor, List | None, Dict | None]:
         """
         Forward pass.
 
@@ -118,5 +131,10 @@ class TransformerBlock(nn.Module):
         x = x + attn_out
 
         # FFN + residual
-        x = x + self.ffn(self.linear2(x))
-        return x, present
+        aux_stats: Dict[str, Any] = {}
+        if self.num_experts <= 0:
+            x = self.ffn(self.linear2(x))
+        else:
+            x, aux_stats["moe"] = self.ffn(self.linear2(x))
+
+        return x, present, aux_stats

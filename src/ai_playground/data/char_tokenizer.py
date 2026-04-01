@@ -58,9 +58,9 @@ class CharTokenizer:
             ids: List of token IDs
 
         Returns:
-            Decoded string
+            Decoded string, stripping EOS
 
         Raises:
             KeyError: If ID not in vocabulary
         """
-        return "".join(self.itos[i] for i in ids)
+        return "".join(self.itos[i] for i in ids if i != self.eos_token_id)

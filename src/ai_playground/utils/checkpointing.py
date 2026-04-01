@@ -7,11 +7,11 @@ import shutil
 if TYPE_CHECKING:
     from torch import nn
     from torch.amp.grad_scaler import GradScaler
-    from typing import Optional, Dict, Any
+    from typing import Dict, Any
     from ai_playground.configs import TrainerConfig
 
 
-def _get_checkpoint_dir(trainer_config: TrainerConfig) -> Path:
+def _get_checkpoint_dir(trainer_config: TrainerConfig) -> Path | None:
     """
     Resolve checkpoint directory from config.
 
@@ -21,11 +21,12 @@ def _get_checkpoint_dir(trainer_config: TrainerConfig) -> Path:
     Returns:
         Path to checkpoint directory
     """
-    assert trainer_config.ckpt_dir is not None
-    return Path(trainer_config.ckpt_dir)
+    return (
+        Path(trainer_config.ckpt_dir) if trainer_config.ckpt_dir is not None else None
+    )
 
 
-def get_latest_checkpoint_path(trainer_config: TrainerConfig) -> Optional[Path]:
+def get_latest_checkpoint_path(trainer_config: TrainerConfig) -> Path | None:
     """
     Get latest checkpoint path if it exists.
 
@@ -35,16 +36,20 @@ def get_latest_checkpoint_path(trainer_config: TrainerConfig) -> Optional[Path]:
     Returns:
         Path to latest checkpoint or None
     """
-    ckpt_path: Path = _get_checkpoint_dir(trainer_config) / "ckpt_latest.pt"
+    ckpt_path: Path | None = _get_checkpoint_dir(trainer_config)
+    if ckpt_path is None:
+        return
+
+    ckpt_path = ckpt_path / "ckpt_latest.pt"
     return ckpt_path if ckpt_path.exists() else None
 
 
 def save_checkpoint(
     trainer_config: TrainerConfig,
     model: nn.Module,
-    optimizer: Optional[torch.optim.Optimizer],
-    scheduler: Optional[Any],
-    scaler: Optional[GradScaler],
+    optimizer: torch.optim.Optimizer | None,
+    scheduler: Any | None,
+    scaler: GradScaler | None,
     step: int,
     unwrap_fn,
 ) -> None:
@@ -60,9 +65,11 @@ def save_checkpoint(
         step: Current global step
         unwrap_fn: Function to unwrap model (e.g. DDP/FSDP)
     """
-    ckpt_dir: Path = _get_checkpoint_dir(trainer_config)
-    ckpt_dir.mkdir(parents=True, exist_ok=True)
+    ckpt_dir: Path | None = _get_checkpoint_dir(trainer_config)
+    if ckpt_dir is None:
+        return
 
+    ckpt_dir.mkdir(parents=True, exist_ok=True)
     checkpoint: Dict[str, Any] = {
         "model": unwrap_fn(model).state_dict(),
         "optimizer": optimizer.state_dict() if optimizer else None,
@@ -86,9 +93,9 @@ def load_checkpoint(
     trainer_config: TrainerConfig,
     model: nn.Module,
     device: torch.device,
-    optimizer: Optional[torch.optim.Optimizer],
-    scheduler: Optional[Any],
-    scaler: Optional[GradScaler],
+    optimizer: torch.optim.Optimizer | None,
+    scheduler: Any | None,
+    scaler: GradScaler | None,
 ) -> int:
     """
     Load latest checkpoint if available.

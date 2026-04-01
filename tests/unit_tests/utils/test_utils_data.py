@@ -36,8 +36,12 @@ def test_build_data_pipeline():
                 config, batch_size=2
             )
 
-            # Check tokenizer
+            # Add eos token
+            eos_token = tokenizer.eos_token
             expected_vocab = set(text)
+            expected_vocab.add(eos_token)
+
+            # Check tokenizer
             assert tokenizer.vocab_size == len(expected_vocab)
             assert set(tokenizer.stoi.keys()) == expected_vocab
             assert set(tokenizer.itos.values()) == expected_vocab
