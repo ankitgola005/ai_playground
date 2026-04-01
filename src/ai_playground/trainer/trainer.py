@@ -170,8 +170,9 @@ class Trainer:
 
         # Setup progress bar
         if self.use_progress_bar and self.progress_bar is None:
+            initial_step = max(step, 0)
             self.progress_bar = setup_progress_bar(
-                initial_step=step, total_steps=self.max_steps
+                initial_step=initial_step, total_steps=self.max_steps
             )
 
         return model, train_dataloader, val_dataloader
