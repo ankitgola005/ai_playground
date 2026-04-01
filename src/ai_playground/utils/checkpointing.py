@@ -44,6 +44,20 @@ def get_latest_checkpoint_path(trainer_config: TrainerConfig) -> Path | None:
     return ckpt_path if ckpt_path.exists() else None
 
 
+def _unwrap_checkpoint_model(model: nn.Module) -> nn.Module:
+    """Unwrap compiled / parallel wrappers to the original model."""
+    # torch.compile wraps models with an OptimizedModule that stores the original
+    # model on `_orig_mod`.
+    while hasattr(model, "_orig_mod"):
+        model = model._orig_mod
+
+    # DDP / DataParallel wrappers expose the raw module on `module`.
+    while hasattr(model, "module") and isinstance(getattr(model, "module"), torch.nn.Module):
+        model = getattr(model, "module")
+
+    return model
+
+
 def save_checkpoint(
     trainer_config: TrainerConfig,
     model: nn.Module,
@@ -51,7 +65,6 @@ def save_checkpoint(
     scheduler: Any | None,
     scaler: GradScaler | None,
     step: int,
-    unwrap_fn,
 ) -> None:
     """
     Save training checkpoint safely (atomic latest update).
@@ -63,15 +76,15 @@ def save_checkpoint(
         scheduler: LR scheduler
         scaler: GradScaler (for AMP)
         step: Current global step
-        unwrap_fn: Function to unwrap model (e.g. DDP/FSDP)
     """
     ckpt_dir: Path | None = _get_checkpoint_dir(trainer_config)
     if ckpt_dir is None:
         return
 
     ckpt_dir.mkdir(parents=True, exist_ok=True)
+    model = _unwrap_checkpoint_model(model)
     checkpoint: Dict[str, Any] = {
-        "model": unwrap_fn(model).state_dict(),
+        "model": model.state_dict(),
         "optimizer": optimizer.state_dict() if optimizer else None,
         "scheduler": scheduler.state_dict() if scheduler else None,
         "scaler": scaler.state_dict() if scaler else None,
@@ -118,6 +131,7 @@ def load_checkpoint(
 
     checkpoint = torch.load(ckpt_path, map_location=device)
 
+    model = _unwrap_checkpoint_model(model)
     model.load_state_dict(checkpoint["model"])
 
     if optimizer and checkpoint.get("optimizer") is not None:

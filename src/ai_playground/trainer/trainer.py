@@ -364,13 +364,11 @@ class Trainer:
 
         # Auxillary metrics to log
         if aux_metrics:
-            print(f"{aux_metrics=}")
-            if aux_metrics and "moe" in self.logger_metrics:
-                print("1.1.1.1")
+            # MoE metrics
+            if "moe" in self.logger_metrics and "moe" in aux_metrics:
                 moe_stats = aux_metrics.get("moe")
                 if isinstance(moe_stats, dict):
                     for key, value in moe_stats.items():
-                        print(f"{key=}, {value=}")
                         if value is None:
                             continue
 
@@ -511,6 +509,7 @@ class Trainer:
         return model
 
     def save_checkpoint(self, model: nn.Module):
+        model = self._unwrap_model(model)
         if self.strategy.is_main_process():
             save_checkpoint(
                 self.config.trainer,
@@ -519,10 +518,10 @@ class Trainer:
                 self.lr_scheduler,
                 self.scaler,
                 self.global_step,
-                unwrap_fn=self._unwrap_model,
             )
 
     def load_checkpoint(self, model: nn.Module) -> int:
+        model = self._unwrap_model(model)
         return load_checkpoint(
             self.config.trainer,
             model,
@@ -536,77 +535,3 @@ class Trainer:
         self.logger_manager.finalize()
         if self.progress_bar is not None:
             self.progress_bar.close()
-
-
-def test_train_step_returns_aux_metrics(trainer):
-    """Check that _train_step returns aux_metrics correctly."""
-
-    class AuxModel(DummyModel):
-        def forward(self, x, y):
-            out = self.lin(x)
-            loss = ((out - y) ** 2).mean()
-            return {
-                "logits": out,
-                "loss": loss,
-                "aux_metrics": {"accuracy": torch.tensor(0.8)},
-            }
-
-    model = AuxModel()
-    trainer.configure_optimizer_and_scheduler(model)
-    xb = torch.randn(2, 16)
-    yb = torch.randn(2, 16)
-
-    logits, loss, aux_metrics = trainer._train_step(
-        model, xb, yb, trainer.optimizer, trainer.lr_scheduler
-    )
-
-    assert isinstance(aux_metrics, dict)
-    assert "accuracy" in aux_metrics
-    assert torch.isclose(aux_metrics["accuracy"], torch.tensor(0.8))
-
-
-def test_train_step_with_moe_metrics(trainer, monkeypatch):
-    """Check that _train_step handles aux_metrics with 'moe' correctly."""
-
-    class MoeModel(DummyModel):
-        def forward(self, x, y):
-            out = self.lin(x)
-            loss = ((out - y) ** 2).mean()
-            return {
-                "logits": out,
-                "loss": loss,
-                "aux_metrics": {
-                    "moe": {"score": torch.tensor([1.0, 2.0]), "value": 42}
-                },
-            }
-
-    # Patch logger to capture metrics
-    captured_metrics = {}
-
-    class DummyLogger:
-        log_frequency = 1
-
-        def log_metrics(self, metrics, step=None):
-            captured_metrics.update(metrics)
-
-        def log_config(self, *a, **kw):
-            pass
-
-        def finalize(self):
-            pass
-
-    monkeypatch.setattr(trainer, "logger_manager", DummyLogger())
-
-    model = MoeModel()
-    trainer.configure_optimizer_and_scheduler(model)
-    xb = torch.randn(2, 16)
-    yb = torch.randn(2, 16)
-
-    logits, loss, aux_metrics = trainer._train_step(
-        model, xb, yb, trainer.optimizer, trainer.lr_scheduler
-    )
-
-    assert "moe" in aux_metrics
-    assert "moe_score_0" in captured_metrics
-    assert "moe_score_1" in captured_metrics
-    assert "moe_value" in captured_metrics
