@@ -129,9 +129,14 @@ def load_checkpoint(
     if ckpt_path is None:
         return -1
 
-    checkpoint = torch.load(ckpt_path, map_location=device)
-
     model = _unwrap_checkpoint_model(model)
+    current_ckpt_path = getattr(model, "_loaded_checkpoint_path", None)
+    current_ckpt_mtime = getattr(model, "_loaded_checkpoint_mtime", None)
+    new_ckpt_mtime = ckpt_path.stat().st_mtime
+    if current_ckpt_path == str(ckpt_path) and current_ckpt_mtime == new_ckpt_mtime:
+        return getattr(model, "_loaded_checkpoint_step", -1)
+
+    checkpoint = torch.load(ckpt_path, map_location=device)
     model.load_state_dict(checkpoint["model"])
 
     if optimizer and checkpoint.get("optimizer") is not None:
@@ -143,4 +148,7 @@ def load_checkpoint(
     if scaler and checkpoint.get("scaler") is not None:
         scaler.load_state_dict(checkpoint["scaler"])
 
-    return checkpoint.get("step", 0)
+    model._loaded_checkpoint_path = str(ckpt_path)
+    model._loaded_checkpoint_mtime = new_ckpt_mtime
+    model._loaded_checkpoint_step = checkpoint.get("step", 0)
+    return model._loaded_checkpoint_step

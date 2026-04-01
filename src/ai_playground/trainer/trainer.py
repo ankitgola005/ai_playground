@@ -144,13 +144,13 @@ class Trainer:
 
     def _prepare_model(self, model: nn.Module, stage: str = "train"):
         self.strategy.setup_environment(stage=stage)
-        cache_key = (id(model), stage)
+        raw_model = self._unwrap_model(model)
+        cache_key = (id(raw_model), stage)
         if cache_key in self._prepared_models:
             return self._prepared_models[cache_key]
 
-        model = self._unwrap_model(model)
-        model = self.strategy.wrap_model(model, stage=stage)
-        prepared_model = torch.compile(model) if self.compile else model
+        wrapped_model = self.strategy.wrap_model(raw_model, stage=stage)
+        prepared_model = torch.compile(wrapped_model) if self.compile else wrapped_model
         self._prepared_models[cache_key] = prepared_model
         return prepared_model
 
