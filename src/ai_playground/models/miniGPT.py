@@ -71,6 +71,7 @@ class MiniGPT(nn.Module):
                     ),
                     ffn_dropout=float(self.model_config.model_kwargs["ffn_dropout"]),
                     moe_dropout=float(self.model_config.model_kwargs["moe_dropout"]),
+                    logging=logging,
                 )
                 for _ in range(int(self.model_config.model_kwargs["n_layer"]))
             ]
