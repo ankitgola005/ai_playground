@@ -1,3 +1,4 @@
+from hashlib import sha256
 from pathlib import Path
 from typing import TYPE_CHECKING
 
@@ -55,23 +56,20 @@ def build_data_pipeline(
 
     cache_dir = DATA_DIR / "cache"
     cache_dir.mkdir(parents=True, exist_ok=True)
-    encoded_cache_path = cache_dir / f"{data_config.dataset}.pt"
-    tokenizer_cache_path = cache_dir / f"{data_config.dataset}_tokenizer.pt"
 
-    dataset_mtime = dataset_path.stat().st_mtime
-    if (
-        encoded_cache_path.exists()
-        and tokenizer_cache_path.exists()
-        and encoded_cache_path.stat().st_mtime >= dataset_mtime
-        and tokenizer_cache_path.stat().st_mtime >= dataset_mtime
-    ):
+    with open(dataset_path, "rb") as f:
+        dataset_bytes = f.read()
+    dataset_hash = sha256(dataset_bytes).hexdigest()
+
+    encoded_cache_path = cache_dir / f"{data_config.dataset}_{dataset_hash}.pt"
+    tokenizer_cache_path = cache_dir / f"{data_config.dataset}_{dataset_hash}_tokenizer.pt"
+
+    if encoded_cache_path.exists() and tokenizer_cache_path.exists():
         encoded = torch.load(encoded_cache_path)
         tokenizer_state = torch.load(tokenizer_cache_path)
         tokenizer = CharTokenizer.from_state(tokenizer_state)
     else:
-        with open(dataset_path, "r", encoding="utf-8") as f:
-            text = f.read()
-
+        text = dataset_bytes.decode("utf-8")
         tokenizer = CharTokenizer(text)
 
         lines = text.split("\n")
@@ -84,6 +82,12 @@ def build_data_pipeline(
 
         torch.save(encoded, encoded_cache_path)
         torch.save(tokenizer.state_dict(), tokenizer_cache_path)
+
+    if len(encoded) <= data_config.block_size:
+        raise ValueError(
+            f"Encoded dataset too small for block_size={data_config.block_size}: "
+            f"len(encoded)={len(encoded)}"
+        )
 
     # Split
     split_idx = int(len(encoded) * data_config.split)
