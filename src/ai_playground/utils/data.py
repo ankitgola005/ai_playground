@@ -53,19 +53,37 @@ def build_data_pipeline(
     """
     dataset_path = get_dataset_path(data_config.dataset)
 
-    with open(dataset_path, "r", encoding="utf-8") as f:
-        text = f.read()
+    cache_dir = DATA_DIR / "cache"
+    cache_dir.mkdir(parents=True, exist_ok=True)
+    encoded_cache_path = cache_dir / f"{data_config.dataset}.pt"
+    tokenizer_cache_path = cache_dir / f"{data_config.dataset}_tokenizer.pt"
 
-    # Tokenize
-    tokenizer = CharTokenizer(text)
+    dataset_mtime = dataset_path.stat().st_mtime
+    if (
+        encoded_cache_path.exists()
+        and tokenizer_cache_path.exists()
+        and encoded_cache_path.stat().st_mtime >= dataset_mtime
+        and tokenizer_cache_path.stat().st_mtime >= dataset_mtime
+    ):
+        encoded = torch.load(encoded_cache_path)
+        tokenizer_state = torch.load(tokenizer_cache_path)
+        tokenizer = CharTokenizer.from_state(tokenizer_state)
+    else:
+        with open(dataset_path, "r", encoding="utf-8") as f:
+            text = f.read()
 
-    lines = text.split("\n")
-    all_tokens = []
-    for line in lines:
-        tokens = tokenizer.encode(line)
-        if len(tokens) > 0:
-            all_tokens.extend(tokens + [tokenizer.eos_token_id])
-    encoded = torch.tensor(all_tokens, dtype=torch.long)
+        tokenizer = CharTokenizer(text)
+
+        lines = text.split("\n")
+        all_tokens = []
+        for line in lines:
+            tokens = tokenizer.encode(line)
+            if len(tokens) > 0:
+                all_tokens.extend(tokens + [tokenizer.eos_token_id])
+        encoded = torch.tensor(all_tokens, dtype=torch.long)
+
+        torch.save(encoded, encoded_cache_path)
+        torch.save(tokenizer.state_dict(), tokenizer_cache_path)
 
     # Split
     split_idx = int(len(encoded) * data_config.split)

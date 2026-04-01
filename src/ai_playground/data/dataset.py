@@ -58,6 +58,7 @@ def build_dataloader(
     seed: int = 42,
     shuffle: bool = True,
     drop_last: bool = True,
+    prefetch: int = 1,
 ) -> DataLoader:
     """
     Build dataloader.
@@ -69,6 +70,7 @@ def build_dataloader(
         seed: Random seed
         shuffle: Whether to shuffle data
         drop_last: Whether drop last incomplete batch
+        prefetch: prefetch data
 
     Returns:
         PyTorch DataLoader
