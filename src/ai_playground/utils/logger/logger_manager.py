@@ -8,25 +8,25 @@ if TYPE_CHECKING:
     from ai_playground.configs.config import TrainerConfig
     from ai_playground.distributed.base import Parallel
     from ai_playground.utils.logger.base_logger import Logger
-    from typing import List, Dict, Any
+    from typing import List, Dict, Any, Set
 
 # Default metric templates
-BASELINE_METRICS: Dict[str, float] = {
-    "train_loss": 0.0,
-    "val_loss": 0.0,
-    "lr": 0.0,
-    "tps": 0.0,
+BASELINE_METRICS: Set[str] = {
+    "train_loss",
+    "val_loss",
+    "lr",
+    "tps",
 }
 
-FULL_METRICS: Dict[str, float] = {
-    "train_loss": 0.0,
-    "lr": 0.0,
-    "grad_norm": 0.0,
-    "weight_norm": 0.0,
-    "update_ratio": 0.0,
-    "tps": 0.0,
-    "avg_step_time": 0.0,
-    "avg_data_time": 0.0,
+FULL_METRICS: Set[str] = {
+    "train_loss",
+    "lr",
+    "grad_norm",
+    "weight_norm",
+    "update_ratio",
+    "tps",
+    "avg_step_time",
+    "avg_data_time",
 }
 
 

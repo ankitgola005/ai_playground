@@ -63,6 +63,7 @@ class TransformerBlock(nn.Module):
         ffn_dropout: float,
         moe_dropout: float,
         sparse_selector: str | None = "topk",
+        logging: bool = False,
     ):
         """
         Initialize a Transformer block.
@@ -107,6 +108,7 @@ class TransformerBlock(nn.Module):
                 d_ff=hidden_dim,
                 num_experts=self.num_experts,
                 dropout=moe_dropout,
+                logging=logging,
             )
 
         self.linear1 = nn.LayerNorm(embed_dim)

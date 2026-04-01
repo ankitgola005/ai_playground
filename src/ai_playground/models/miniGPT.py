@@ -25,9 +25,10 @@ class MiniGPT(nn.Module):
         kv_cache_max_len (int): Maximum KV cache length.
         use_paged_kv_cache (bool): Whether to use paged KV cache.
         paged_kv_cache_block_size (int): Block size for paged KV cache.
+        logging (bool): enable logging. Default False.
     """
 
-    def __init__(self, model_config: "ModelConfig", vocab_size: int, block_size: int):
+    def __init__(self, model_config: "ModelConfig", vocab_size: int, block_size: int, logging: bool = False):
         """
         Initialize MiniGPT.
 
@@ -64,6 +65,7 @@ class MiniGPT(nn.Module):
                     ),
                     ffn_dropout=float(self.model_config.model_kwargs["ffn_dropout"]),
                     moe_dropout=float(self.model_config.model_kwargs["moe_dropout"]),
+                    logging=logging,
                 )
                 for _ in range(int(self.model_config.model_kwargs["n_layer"]))
             ]

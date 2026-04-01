@@ -1,5 +1,5 @@
 from contextlib import nullcontext
-from typing import TYPE_CHECKING, List, Dict, Any
+from typing import TYPE_CHECKING, List, Dict, Any, Iterable
 import time
 
 import torch
@@ -49,6 +49,7 @@ class Trainer:
         config: "Config",
         strategy: Parallel,
         optimizer: Optimizer | None = None,
+        logger_metrics: Iterable[str] | None = None,
     ):
         self.optimizer: Optimizer | None = optimizer
         self.lr_scheduler: lr_scheduler.LambdaLR | None = None
@@ -86,7 +87,10 @@ class Trainer:
         self.logger_manager: LoggerManager = create_loggers(
             self.strategy, config.trainer
         )
-        self.logger_metrics: set = set(BASELINE_METRICS)
+
+        base_metrics: set = set(BASELINE_METRICS)
+        extra_metrics: set = set(logger_metrics) if logger_metrics else set()
+        self.logger_metrics: set[str] = base_metrics | extra_metrics
 
         self.use_progress_bar: bool = config.trainer.use_progress_bar
         self.progress_bar: tqdm | None = None
