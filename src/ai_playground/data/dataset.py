@@ -80,15 +80,23 @@ def build_dataloader(
 
     generator = torch.Generator().manual_seed(seed)
 
-    dataloader = DataLoader(
-        dataset,
-        batch_size=batch_size,
-        shuffle=shuffle,
-        num_workers=data_config.num_workers,
-        worker_init_fn=seed_worker,
-        generator=generator,
-        drop_last=drop_last,
-    )
+    dataloader_kwargs = {
+        "dataset": dataset,
+        "batch_size": batch_size,
+        "shuffle": shuffle,
+        "num_workers": data_config.num_workers,
+        "worker_init_fn": seed_worker,
+        "generator": generator,
+        "drop_last": drop_last,
+    }
+    if data_config.num_workers > 0:
+        dataloader_kwargs.update(
+            pin_memory=torch.cuda.is_available(),
+            persistent_workers=True,
+            prefetch_factor=2,
+        )
+
+    dataloader = DataLoader(**dataloader_kwargs)
     return dataloader
 
 

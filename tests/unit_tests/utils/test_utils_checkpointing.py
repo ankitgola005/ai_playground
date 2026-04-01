@@ -78,7 +78,7 @@ def test_save_checkpoint_and_load(tmpdir):
         return m
 
     # Save checkpoint
-    save_checkpoint(config, model, optimizer, scheduler, scaler, step, unwrap_fn)
+    save_checkpoint(config, model, optimizer, scheduler, scaler, step)
 
     latest_path = ckpt_dir / "ckpt_latest.pt"
     step_path = ckpt_dir / f"ckpt_step_{step}.pt"
