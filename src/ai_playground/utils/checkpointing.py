@@ -52,7 +52,9 @@ def _unwrap_checkpoint_model(model: nn.Module) -> nn.Module:
         model = model._orig_mod
 
     # DDP / DataParallel wrappers expose the raw module on `module`.
-    while hasattr(model, "module") and isinstance(getattr(model, "module"), torch.nn.Module):
+    while hasattr(model, "module") and isinstance(
+        getattr(model, "module"), torch.nn.Module
+    ):
         model = getattr(model, "module")
 
     return model

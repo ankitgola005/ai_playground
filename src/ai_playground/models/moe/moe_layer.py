@@ -24,6 +24,7 @@ class MoELayer(nn.Module):
         d_ff: int,
         num_experts: int,
         dropout: float,
+        capacity_factor: float = 1.2,
         logging: bool = False,
     ):
         """
@@ -47,6 +48,7 @@ class MoELayer(nn.Module):
         self.experts = nn.ModuleList(
             [Expert(d_model, d_ff, dropout) for _ in range(num_experts)]
         )
+        self.capacity_factor = capacity_factor
         self.logging = logging
 
     def forward(self, x: torch.Tensor) -> Tuple[torch.Tensor, Dict | None]:
@@ -74,9 +76,11 @@ class MoELayer(nn.Module):
         x_flat = x.view(-1, D)  # [N, D], N = B*T
 
         # routing
-        topk_idx, topk_vals = self.router(x)  # [B, T, K]
+        topk_idx, topk_vals, probs = self.router(x)  # [B, T, K]
         assert topk_idx.shape == topk_vals.shape
         assert topk_idx.dim() == 3  # (B, T, K)
+        if self.training:
+            topk_idx, topk_vals = self.apply_capacity(topk_idx, topk_vals)
 
         K = topk_idx.shape[-1]
         topk_idx = topk_idx.view(-1, K)  # (N, K)
@@ -104,17 +108,86 @@ class MoELayer(nn.Module):
             mask = topk_idx == expert_id
             token_idx, _ = torch.where(mask)
             covered[token_idx] = True
-        assert covered.all(), "Some tokens were never routed!"
+        if not self.training:
+            assert covered.all(), "Some tokens were never routed!"
+
+        loss_lb = None
+        load = None
+        if self.training:
+            # importance: soft distribution
+            importance = probs.mean(dim=(0, 1))  # (num_experts,)
+
+            # load: hard routing counts
+            load = torch.zeros(self.num_experts, device=x.device)
+            load = torch.bincount(topk_idx.view(-1), minlength=self.num_experts).float()
+
+            # normalize
+            importance = importance / importance.sum()
+            load = load / load.sum()
+
+            # load balancing loss
+            loss_lb = (importance * load).sum() * (self.num_experts**2)
 
         moe_stats: Dict | None = None
 
         if self.logging and self.training:
-            expert_load = torch.bincount(topk_idx.view(-1), minlength=self.num_experts)
+            expert_load = load
             expert_importance = torch.zeros(self.num_experts, device=x.device)
             expert_importance.scatter_add_(0, topk_idx.view(-1), topk_vals.view(-1))
             moe_stats = {
                 "expert_load": expert_load,
                 "expert_importance": expert_importance,
             }
+            if loss_lb is not None:
+                moe_stats["load_balance_loss"] = loss_lb.detach()
 
         return output.view(B, T, D), moe_stats
+
+    def apply_capacity(self, topk_idx, topk_vals):
+        B, T, K = topk_idx.shape
+        N = B * T
+        E = self.num_experts
+        capacity = int(self.capacity_factor * (N / E))
+
+        topk_idx_flat = topk_idx.view(N, K).clone()
+        topk_vals_flat = topk_vals.view(N, K).clone()
+
+        expert_count = torch.zeros(E, dtype=torch.long, device=topk_idx.device)
+        keep = torch.zeros(N, K, dtype=torch.bool, device=topk_idx.device)
+
+        for n in range(N):
+            seen = set()
+            for k in range(K):
+                e = topk_idx_flat[n, k].item()
+                if e in seen:
+                    continue
+                seen.add(e)
+                if expert_count[e] < capacity:
+                    keep[n, k] = True
+                    expert_count[e] += 1
+
+        # Zero weights for dropped slots
+        topk_vals_flat[~keep] = 0.0
+
+        # Redirect dropped slot *indices* to a kept expert for this token (no-op for bool mask)
+        # For tokens with at least one kept slot: redirect to that expert
+        # For fully-dropped tokens: leave idx[n,0] as-is (all weights are 0 anyway)
+        has_kept = keep.any(dim=1)  # [N]
+        first_kept_k = keep.long().argmax(dim=1)  # [N]
+        safe_expert = topk_idx_flat[
+            torch.arange(N, device=topk_idx.device), first_kept_k
+        ]
+
+        topk_idx_out = topk_idx_flat.clone()
+        for n in range(N):
+            if has_kept[n]:
+                topk_idx_out[n][~keep[n]] = safe_expert[n]
+            # else: fully dropped token — keep original indices, weights are all 0
+
+        # Renormalize ONLY tokens that have at least one kept slot
+        denom = topk_vals_flat.sum(dim=-1, keepdim=True)
+        active = has_kept & (denom.squeeze(-1) > 0)
+        topk_vals_flat[active] = topk_vals_flat[active] / denom[active]
+        # Fully-dropped tokens keep all-zero weights (they contribute nothing to output)
+
+        return topk_idx_out.view(B, T, K), topk_vals_flat.view(B, T, K)

@@ -229,6 +229,8 @@ class Trainer:
                     logits, loss, aux_metrics = self._train_step(
                         model, xb, yb, self.optimizer, self.lr_scheduler
                     )
+                    if aux_metrics and "moe" in aux_metrics:
+                        loss += aux_metrics.get("load_balance_loss", 0.0)
 
                     if self.strategy.device_type == "cuda":
                         torch.cuda.synchronize()
@@ -375,22 +377,34 @@ class Trainer:
         # Auxillary metrics to log
         if aux_metrics:
             # MoE metrics
-            if "moe" in self.logger_metrics and "moe" in aux_metrics:
-                moe_stats = aux_metrics.get("moe")
-                if isinstance(moe_stats, dict):
+            if "moe" in self.logger_metrics and aux_metrics:
+                for block_name, block_data in aux_metrics.items():
+                    if not isinstance(block_data, dict):
+                        continue
+                    moe_stats = block_data.get("moe", None)
+                    if moe_stats is None:
+                        continue
+
                     for key, value in moe_stats.items():
                         if value is None:
                             continue
 
+                        metric_prefix = f"{block_name}_{key}"
+
+                        # Normalize
+                        if key == "expert_load":
+                            value = value.float() / (value.sum() + 1e-9)
+                        if key == "expert_importance":
+                            value = value / (value.sum() + 1e-9)
+
                         if torch.is_tensor(value):
                             if value.numel() == 1:
-                                metrics[f"moe_{key}"] = value.item()
+                                metrics[metric_prefix] = value.item()
                             else:
-                                # flatten if tensor is not singleton
                                 for i, v in enumerate(value):
-                                    metrics[f"moe_{key}_{i}"] = v.item()
+                                    metrics[f"{metric_prefix}_{i}"] = v.item()
                         else:
-                            metrics[f"moe_{key}"] = value
+                            metrics[metric_prefix] = value
 
         # Include CUDA memory metrics if on GPU
         if self.strategy.device_type == "cuda":

@@ -62,7 +62,9 @@ def build_data_pipeline(
     dataset_hash = sha256(dataset_bytes).hexdigest()
 
     encoded_cache_path = cache_dir / f"{data_config.dataset}_{dataset_hash}.pt"
-    tokenizer_cache_path = cache_dir / f"{data_config.dataset}_{dataset_hash}_tokenizer.pt"
+    tokenizer_cache_path = (
+        cache_dir / f"{data_config.dataset}_{dataset_hash}_tokenizer.pt"
+    )
 
     if encoded_cache_path.exists() and tokenizer_cache_path.exists():
         encoded = torch.load(encoded_cache_path)
@@ -98,8 +100,8 @@ def build_data_pipeline(
     if split_idx == len(encoded):
         split_idx = int(len(encoded) * data_config.split)
 
-    train_data = encoded[:split_idx]
-    val_data = encoded[split_idx:]
+    train_data = encoded[: split_idx + 1]
+    val_data = encoded[split_idx + 1 :]
     # train_data, val_data = dataset.train_val_split(encoded, split=data_config.split)
 
     # Build dataloaders

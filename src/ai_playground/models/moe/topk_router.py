@@ -11,7 +11,14 @@ class TopKRouter(nn.Module):
     and selects the top-k experts along with their corresponding probabilities.
     """
 
-    def __init__(self, d_model: int, num_experts: int, topk: int = 1) -> None:
+    def __init__(
+        self,
+        d_model: int,
+        num_experts: int,
+        topk: int = 1,
+        router_noise: float = 0.15,
+        temperature: float = 2.5,
+    ) -> None:
         """
         Initilaizes TopKRouter.
 
@@ -29,6 +36,8 @@ class TopKRouter(nn.Module):
         super().__init__()
         self.topk = min(topk, num_experts)
         self.linear = nn.Linear(d_model, num_experts)
+        self.router_noise = router_noise
+        self.temperature = temperature
 
     def forward(self, x: torch.Tensor):
         """
@@ -49,9 +58,15 @@ class TopKRouter(nn.Module):
         """
         # x: [B, T, D]
         logits = self.linear(x)  # [B, T, E]
+
+        # Add noise to moe logits to avoid expert collapse
+        if self.training:
+            logits += torch.randn_like(logits) * self.router_noise
+            logits = logits / self.temperature
+
         probs = F.softmax(logits, dim=-1)
 
         # top-k experts
         topk_vals, topk_idx = torch.topk(probs, k=self.topk, dim=-1)  # [B, T, k]
 
-        return topk_idx, topk_vals
+        return topk_idx, topk_vals, probs
