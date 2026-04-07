@@ -51,6 +51,8 @@ class MiniGPT(nn.Module):
             self.block_size,
             int(self.model_config.model_kwargs["n_embed"]),
         )
+        self.num_experts: int = int(self.model_config.model_kwargs["num_experts"])
+        self.load_balance_loss_weight: float = 0.15
 
         # Transformer blocks
         self.transformer_blocks: nn.Sequential = nn.Sequential(
@@ -64,7 +66,8 @@ class MiniGPT(nn.Module):
                     use_flash_attention=bool(
                         self.model_config.model_kwargs["use_flash_attention"]
                     ),
-                    num_experts=int(self.model_config.model_kwargs["num_experts"]),
+                    num_experts=self.num_experts,
+                    moe_topk=int(self.model_config.model_kwargs["moe_topk"]),
                     attn_dropout=float(self.model_config.model_kwargs["attn_dropout"]),
                     residual_dropout=float(
                         self.model_config.model_kwargs["residual_dropout"]
@@ -124,12 +127,20 @@ class MiniGPT(nn.Module):
 
         # Transformer blocks
         new_past_key_values: List = []
-        aux_metrics: Dict | None = None
+        total_aux_loss = 0.0
+        final_aux_metrics = {}
+
         for i, block in enumerate(self.transformer_blocks):
             pkv = past_key_values[i] if past_key_values is not None else None
             x, present, aux_metrics = block(x, past_key_values=pkv, use_cache=use_cache)
             if use_cache:
                 new_past_key_values.append(present)
+
+            if self.training and aux_metrics is not None and "moe" in aux_metrics:
+                layer_scale = 2.0 if i < 2 else 1.0  # Heavier weight on early layers
+                total_aux_loss += aux_metrics["moe"]["load_balance_loss"] * layer_scale
+
+                final_aux_metrics[f"block_{i}"] = aux_metrics
 
         # Final LN + head
         x = self.layernorm(x)
@@ -143,10 +154,21 @@ class MiniGPT(nn.Module):
             targets_flat = targets.view(B * T)
             loss = F.cross_entropy(logits_flat, targets_flat)
 
+        total_load_balance_loss = (
+            total_aux_loss / self.num_experts if self.num_experts > 0 else None
+        )
+        scaled_load_balance_loss = (
+            total_load_balance_loss * self.load_balance_loss_weight
+            if total_load_balance_loss is not None
+            else None
+        )
+
         return {
             "logits": logits,
             "loss": loss,
-            "aux_metrics": aux_metrics,
+            "aux_metrics": final_aux_metrics,
+            "load_balance_loss": total_load_balance_loss,
+            "scaled_load_balance_loss": scaled_load_balance_loss,
             "kv": new_past_key_values if use_cache else None,
         }
 

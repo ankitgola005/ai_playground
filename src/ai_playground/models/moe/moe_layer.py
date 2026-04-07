@@ -23,7 +23,8 @@ class MoELayer(nn.Module):
         d_model: int,
         d_ff: int,
         num_experts: int,
-        dropout: float,
+        moe_topk: int = 1,
+        dropout: float = 0.0,
         capacity_factor: float = 1.2,
         logging: bool = False,
     ):
@@ -44,7 +45,13 @@ class MoELayer(nn.Module):
         """
         super().__init__()
         self.num_experts = num_experts
-        self.router = TopKRouter(d_model, num_experts)
+        self.router = TopKRouter(
+            d_model=d_model,
+            num_experts=num_experts,
+            topk=moe_topk,
+            router_noise=0.15,
+            temperature=2.5,
+        )
         self.experts = nn.ModuleList(
             [Expert(d_model, d_ff, dropout) for _ in range(num_experts)]
         )
@@ -147,47 +154,62 @@ class MoELayer(nn.Module):
         B, T, K = topk_idx.shape
         N = B * T
         E = self.num_experts
+        device = topk_idx.device
+
         capacity = int(self.capacity_factor * (N / E))
 
-        topk_idx_flat = topk_idx.view(N, K).clone()
-        topk_vals_flat = topk_vals.view(N, K).clone()
+        idx = topk_idx.view(N, K)
+        vals = topk_vals.view(N, K)
 
-        expert_count = torch.zeros(E, dtype=torch.long, device=topk_idx.device)
-        keep = torch.zeros(N, K, dtype=torch.bool, device=topk_idx.device)
+        # Flatten
+        flat_expert = idx.reshape(-1)  # [N*K]
+        flat_vals = vals.reshape(-1)  # [N*K]
 
-        for n in range(N):
-            seen = set()
-            for k in range(K):
-                e = topk_idx_flat[n, k].item()
-                if e in seen:
-                    continue
-                seen.add(e)
-                if expert_count[e] < capacity:
-                    keep[n, k] = True
-                    expert_count[e] += 1
+        # Sort by expert, then by score descending
+        sort_key = flat_expert * 1e6 - flat_vals
+        order = torch.argsort(sort_key)
 
-        # Zero weights for dropped slots
-        topk_vals_flat[~keep] = 0.0
+        flat_expert = flat_expert[order]
+        flat_vals = flat_vals[order]
 
-        # Redirect dropped slot *indices* to a kept expert for this token (no-op for bool mask)
-        # For tokens with at least one kept slot: redirect to that expert
-        # For fully-dropped tokens: leave idx[n,0] as-is (all weights are 0 anyway)
-        has_kept = keep.any(dim=1)  # [N]
-        first_kept_k = keep.long().argmax(dim=1)  # [N]
-        safe_expert = topk_idx_flat[
-            torch.arange(N, device=topk_idx.device), first_kept_k
+        # Identify new expert segments
+        is_new = torch.ones_like(flat_expert, dtype=torch.bool)
+        is_new[1:] = flat_expert[1:] != flat_expert[:-1]
+
+        # Compute position within each segment
+        pos_in_segment = torch.arange(len(flat_expert), device=device)
+        segment_start = torch.zeros_like(pos_in_segment)
+        segment_start[is_new] = pos_in_segment[is_new]
+
+        segment_start = torch.cummax(segment_start, dim=0).values
+        rank = pos_in_segment - segment_start
+
+        # Keep top capacity per expert
+        keep_sorted = rank < capacity
+
+        # Undo sort
+        inv_order = torch.argsort(order)
+        keep_mask = keep_sorted[inv_order].view(N, K)
+
+        # Apply mask
+        vals = vals * keep_mask
+
+        # Renormalize safely
+        denom = vals.sum(dim=-1, keepdim=True)
+        vals = vals / denom.clamp(min=1e-9)
+        vals = vals * (denom > 0)
+
+        # Redirect dropped indices
+        has_kept = keep_mask.any(dim=1)
+        first_kept = keep_mask.float().argmax(dim=1)
+
+        safe_expert = idx[torch.arange(N, device=device), first_kept]
+
+        idx_out = idx.clone()
+        # Only redirect for tokens that actually have a kept expert
+        redirect_mask = (~keep_mask) & has_kept.unsqueeze(1)
+        idx_out[redirect_mask] = safe_expert.unsqueeze(1).expand_as(idx_out)[
+            redirect_mask
         ]
 
-        topk_idx_out = topk_idx_flat.clone()
-        for n in range(N):
-            if has_kept[n]:
-                topk_idx_out[n][~keep[n]] = safe_expert[n]
-            # else: fully dropped token — keep original indices, weights are all 0
-
-        # Renormalize ONLY tokens that have at least one kept slot
-        denom = topk_vals_flat.sum(dim=-1, keepdim=True)
-        active = has_kept & (denom.squeeze(-1) > 0)
-        topk_vals_flat[active] = topk_vals_flat[active] / denom[active]
-        # Fully-dropped tokens keep all-zero weights (they contribute nothing to output)
-
-        return topk_idx_out.view(B, T, K), topk_vals_flat.view(B, T, K)
+        return idx_out.view(B, T, K), vals.view(B, T, K)

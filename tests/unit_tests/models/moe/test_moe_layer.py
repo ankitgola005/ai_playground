@@ -193,19 +193,56 @@ def test_accumulation_not_overwrite():
     assert out.norm() > 0
 
 
-import torch
-import pytest
-from ai_playground.models.moe.moe_layer import MoELayer
-
-import torch
-import pytest
-from ai_playground.models.moe.moe_layer import MoELayer
-
-
 @pytest.mark.parametrize("shape,E", [((4, 8, 16), 4)])
 def test_capacity_enforcement(shape, E):
     *_, D = shape
+
     moe = MoELayer(D, 32, E, dropout=0.0, capacity_factor=0.5)
+    moe.train()
+
+    x = torch.randn(shape)
+
+    topk_idx, topk_vals, _ = moe.router(x)
+    topk_idx, topk_vals = moe.apply_capacity(topk_idx, topk_vals)
+
+    B, T, K = topk_idx.shape
+    N = B * T
+
+    capacity = int(moe.capacity_factor * (N / E))
+
+    # 1. Only count KEPT assignments (non-zero weights)
+    keep_mask = topk_vals > 0  # [B, T, K]
+
+    expert_counts = torch.zeros(E, device=x.device)
+
+    for e in range(E):
+        expert_counts[e] = ((topk_idx == e) & keep_mask).sum()
+
+    assert (
+        expert_counts <= capacity
+    ).all(), f"Capacity violated: {expert_counts} > {capacity}"
+
+    # 2. Renormalization check
+    sums = topk_vals.sum(dim=-1)  # [B, T]
+
+    active = sums > 0  # tokens that were not fully dropped
+
+    if active.any():
+        assert torch.allclose(
+            sums[active],
+            torch.ones_like(sums[active]),
+            atol=1e-5,
+        ), "Top-k weights not normalized"
+
+    # 3. Fully dropped tokens allowed
+    dropped_tokens = (sums == 0).sum()
+    assert dropped_tokens >= 0
+
+
+@pytest.mark.parametrize("shape,E", [((4, 8, 16), 4)])
+def _test_capacity_enforcement(shape, E):
+    *_, D = shape
+    moe = MoELayer(D, 32, E, dropout=0.0, capacity_factor=0.5, moe_topk=1)
     moe.train()
 
     x = torch.randn(*shape)
@@ -236,7 +273,7 @@ def test_capacity_enforcement(shape, E):
 
 def test_topk_vals_normalized():
     B, T, D, E = 2, 4, 8, 4
-    moe = MoELayer(D, 16, E, dropout=0.0)
+    moe = MoELayer(D, 16, E, dropout=0.0, moe_topk=1)
     moe.train()
 
     x = torch.randn(B, T, D)

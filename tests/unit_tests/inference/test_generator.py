@@ -22,6 +22,7 @@ class DummyConfig:
             "n_layer": 2,
             "use_flash_attention": False,
             "num_experts": 0.0,
+            "moe_topk": 0,
             "attn_dropout": 0.0,
             "residual_dropout": 0.0,
             "ffn_dropout": 0.0,

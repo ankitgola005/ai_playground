@@ -78,7 +78,7 @@ class SparseKVCache:
         if self.idx_sparse == 0:
             return torch.empty(0), torch.empty(0)
 
-        # 🔥 FIX: enforce temporal order
+        # enforce temporal order
         pos = torch.tensor(self.positions, device=self.k.device)
         order = torch.argsort(pos)
 

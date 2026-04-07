@@ -115,6 +115,7 @@ class Trainer:
         self.generator: Generator | None = None
         self.val_loss_history: List[dict] = []
         self.check_finite_grads: bool = False
+        self.history: List = []
 
     def configure_optimizer_and_scheduler(self, model: nn.Module):
         decay, no_decay = [], []
@@ -422,6 +423,8 @@ class Trainer:
                 if key in self.progress_bar_metrics_names:
                     self.progress_bar_metrics[key] = value
             self.progress_bar.set_postfix(self.progress_bar_metrics)
+
+        self.history.append({"step": self.global_step, **metrics})
 
         # Reset accumulators
         self.step_time_accumulator = 0.0

@@ -58,6 +58,7 @@ class TransformerBlock(nn.Module):
         hidden_dim: int,
         use_flash_attention: bool,
         num_experts: int,
+        moe_topk: int,
         attn_dropout: float,
         residual_dropout: float,
         ffn_dropout: float,
@@ -100,6 +101,7 @@ class TransformerBlock(nn.Module):
             self.attention.set_sparse_selector(StrideSelector(2))
 
         self.num_experts = num_experts
+        self.moe_topk = moe_topk
         if self.num_experts <= 0:
             self.ffn = FFN(embed_dim, hidden_dim, ffn_dropout)
         else:
@@ -107,6 +109,7 @@ class TransformerBlock(nn.Module):
                 d_model=embed_dim,
                 d_ff=hidden_dim,
                 num_experts=self.num_experts,
+                moe_topk=self.moe_topk,
                 dropout=moe_dropout,
                 logging=logging,
             )

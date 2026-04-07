@@ -18,6 +18,7 @@ def make_block(
         hidden_dim=hidden_dim,
         use_flash_attention=False,
         num_experts=0,
+        moe_topk=1,
         attn_dropout=0.0,
         residual_dropout=0.0,
         ffn_dropout=0.0,
