@@ -2,6 +2,7 @@ from contextlib import nullcontext
 from typing import TYPE_CHECKING, List, Dict, Any, Iterable
 import time
 
+from sklearn import metrics
 import torch
 import torch.nn as nn
 from torch.amp.grad_scaler import GradScaler
@@ -449,6 +450,11 @@ class Trainer:
         if "val_loss" in self.logger_metrics:
             metrics = {"val_loss": val_loss}
             self.logger_manager.log_metrics(metrics, step=self.global_step)
+
+            if len(self.history) > 0 and self.history[-1]["step"] == self.global_step:
+                self.history[-1].update(metrics)
+            else:
+                self.history.append({"step": self.global_step, **metrics})
 
             # Update tqdm / progress bar
             if self.progress_bar is not None and self.progress_bar_metrics is not None:

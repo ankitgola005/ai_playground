@@ -14,7 +14,7 @@ Each experiment is self-contained in its own folder with its own README, scripts
 | 05   | KV Cache                | Effect of KV cache on memory and compute.                                             | KV cache reduces compute by caching KV values during inference. Performance gains depend on the compute - memory trade off, where performance is more apparent for larger models where compute is the bottleneck. | [Read more](kv_cache/README.md)                |
 | 06   | KV Cache strategies     | Study how different KV Caching strategies help use GPU memory optimally               | Paged caching strategy seems to work best, especially in case of fragmented memory allocations.                                                                                                                   | [Read more](kv_cache_strategies/README.md)     |
 | 07   | KV Cache strategies(II) | Study how different KV Caching strategies using KV cache implementations              | Paged caching strategy seems to work best, especially in case of fragmented memory allocations.                                                                                                                   | [Read more](kv_cache_strategies_2/README.md)   |
-
+| 08     | MoE | Study the effect of MoE. | While MoE increases model parameters, for the current model size, its accuracy barely catches up with dense model | [Read more](moe/README.md) |
 ---
 
 > New experiments should follow the same structure: each in its own folder, with an internal README summarizing results, links to plots/scripts, and reference to the base config file.
