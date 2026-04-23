@@ -16,7 +16,6 @@ model:
     n_head: 4
     n_embed: 256
     hidden_dim: 1024
-    use_kv_cache: true
     n_kv_head: 2
     use_flash_attention: false
     num_experts: 4
