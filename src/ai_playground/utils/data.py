@@ -3,6 +3,7 @@ from pathlib import Path
 from typing import TYPE_CHECKING
 
 import torch
+from tqdm import tqdm
 from ai_playground.data import dataset
 from ai_playground.tokenizer.base_tokenizer import BaseTokenizer
 from ai_playground.tokenizer.tokenizer_factory import build_tokenizer
@@ -203,16 +204,18 @@ def _process_dataset(
     """
     paths = get_dataset_path(data_config.dataset)
 
-    def process_file(path):
-        import itertools
-
+    def count_lines(path):
         with open(path, "r", encoding="utf-8") as f:
-            tokens = list(
-                itertools.chain.from_iterable(
-                    tokenizer.encode(line.strip()) + [tokenizer.eos_token_id]
-                    for line in f
-                )
-            )
+            return sum(1 for _ in f)
+
+    def process_file(path):
+        total_lines = count_lines(path)
+        tokens = []
+        with open(path, "r", encoding="utf-8") as f:
+            for line in tqdm(
+                f, total=total_lines, desc=f"Processing {path.name}", unit="lines"
+            ):
+                tokens.extend(tokenizer.encode(line.strip()) + [tokenizer.eos_token_id])
         return torch.tensor(tokens, dtype=torch.long)
 
     if paths["val"] is not None:
