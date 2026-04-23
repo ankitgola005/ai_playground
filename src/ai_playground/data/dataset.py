@@ -58,7 +58,7 @@ def build_dataloader(
     seed: int = 42,
     shuffle: bool = True,
     drop_last: bool = True,
-    prefetch: int = 1,
+    prefetch: int = 2,
 ) -> DataLoader:
     """
     Build dataloader.
@@ -95,7 +95,7 @@ def build_dataloader(
         dataloader_kwargs.update(
             pin_memory=torch.cuda.is_available(),
             persistent_workers=True,
-            prefetch_factor=2,
+            prefetch_factor=prefetch,
         )
 
     dataloader = DataLoader(**dataloader_kwargs)

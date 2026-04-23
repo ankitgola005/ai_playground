@@ -481,10 +481,13 @@ class Trainer:
         model.eval()
         total_loss = torch.zeros(1, device=self.strategy.device)
         count = 0
-        with torch.no_grad(), torch.autocast(
-            device_type=self.strategy.device_type,
-            dtype=self.precision_dtype,
-            enabled=self.use_amp,
+        with (
+            torch.no_grad(),
+            torch.autocast(
+                device_type=self.strategy.device_type,
+                dtype=self.precision_dtype,
+                enabled=self.use_amp,
+            ),
         ):
             for xb, yb in val_dataloader:
                 xb, yb = xb.to(self.strategy.device), yb.to(self.strategy.device)

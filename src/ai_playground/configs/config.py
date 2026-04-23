@@ -34,12 +34,20 @@ class LRConfig(BaseModel):
     one_cycle_pct: float | None = Field(default=None, gt=0.0)
 
 
+# Tokenizer config
+class TokenizerConfig(BaseModel):
+    name: str
+    filename: str | None = Field(default=None)
+    vocab_size: int | None = Field(default=None)
+
+
 # Data config
 class DataConfig(BaseModel):
     dataset: str
     split: float = Field(ge=0.0, le=1.0)
     num_workers: int = Field(ge=0)
     block_size: int = Field(gt=1)
+    tokenizer: TokenizerConfig
 
 
 # Model config
