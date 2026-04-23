@@ -39,6 +39,12 @@ class TextDataset(Dataset):
         """
         x = self.data[idx : idx + self.block_size]
         y = self.data[idx + 1 : idx + self.block_size + 1]
+        if isinstance(x, np.ndarray) and isinstance(y, np.ndarray):
+            x = torch.from_numpy(x.copy())
+            y = torch.from_numpy(y.copy())
+        else:
+            x = x.clone()
+            y = y.clone()
         return x, y
 
 

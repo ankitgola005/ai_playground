@@ -1,9 +1,9 @@
 from hashlib import sha256
 from pathlib import Path
 from typing import TYPE_CHECKING
-
-import torch
 from tqdm import tqdm
+import os
+import torch
 from ai_playground.data import dataset
 from ai_playground.tokenizer.base_tokenizer import BaseTokenizer
 from ai_playground.tokenizer.tokenizer_factory import build_tokenizer
@@ -175,8 +175,8 @@ def _is_cache_valid(
         return False
 
     try:
-        train_tokens = torch.load(train_tokens_path)
-        val_tokens = torch.load(val_tokens_path)
+        train_tokens = load_tokens_memmap(train_tokens_path)
+        val_tokens = load_tokens_memmap(val_tokens_path)
         return (
             train_tokens.numel() > 0
             and train_tokens.max().item() < tokenizer.vocab_size
@@ -187,49 +187,109 @@ def _is_cache_valid(
         return False
 
 
-def _process_dataset(
+def load_tokens_memmap(path: Path):
+    import numpy as np
+    import torch
+
+    arr = np.memmap(path, dtype=np.int32, mode="r")
+    return torch.from_numpy(arr)
+
+
+
+def _process_file_stream(path: Path, tokenizer, output_path: Path):
+    import numpy as np
+
+    buffer = []
+    CHUNK = 1_000_000
+
+    total_bytes = os.path.getsize(path)
+
+    with open(path, "r", encoding="utf-8") as f, \
+         open(output_path, "wb") as out, \
+         tqdm(total=total_bytes, desc=f"Processing {path.name}", unit="B", unit_scale=True) as pbar:
+
+        for line in f:
+            tokens = tokenizer.encode(line.strip())
+            tokens.append(tokenizer.eos_token_id)
+
+            buffer.extend(tokens)
+
+            if len(buffer) >= CHUNK:
+                arr = np.array(buffer, dtype=np.int32)
+                out.write(arr.tobytes())
+                buffer.clear()
+
+            # update progress by bytes read
+            pbar.update(len(line.encode("utf-8")))
+
+        if buffer:
+            arr = np.array(buffer, dtype=np.int32)
+            out.write(arr.tobytes())
+
+
+def _process_and_split_stream(
+    path: Path,
+    tokenizer,
+    train_out: Path,
+    val_out: Path,
+    split_ratio: float,
+):
+    import numpy as np
+
+    # pass 1 → count tokens
+    total_tokens = 0
+    with open(path, "r", encoding="utf-8") as f:
+        for line in f:
+            total_tokens += len(tokenizer.encode(line.strip())) + 1
+
+    split_target = int(total_tokens * split_ratio)
+
+    train_f = open(train_out, "wb")
+    val_f = open(val_out, "wb")
+
+    written = 0
+
+    def write(arr, f):
+        f.write(np.array(arr, dtype=np.int32).tobytes())
+
+    with open(path, "r", encoding="utf-8") as f:
+        for line in f:
+            tokens = tokenizer.encode(line.strip())
+            tokens.append(tokenizer.eos_token_id)
+
+            if written < split_target:
+                write(tokens, train_f)
+                written += len(tokens)
+            else:
+                write(tokens, val_f)
+
+    train_f.close()
+    val_f.close()
+
+
+def _process_dataset_streaming(
     data_config: "DataConfig",
     tokenizer: BaseTokenizer,
-) -> Tuple[torch.Tensor, torch.Tensor]:
+    train_out: Path,
+    val_out: Path,
+):
     """
-    Processes dataset files into tokenized tensors.
-
-    Args:
-        data_config: Data configuration.
-        tokenizer: Tokenizer instance.
-
-    Returns:
-        train_tokens: Tokenized train data.
-        val_tokens: Tokenized val data.
+    Streams dataset → tokenizes → writes to disk.
+    Avoids loading full dataset into memory.
     """
     paths = get_dataset_path(data_config.dataset)
 
-    def count_lines(path):
-        with open(path, "r", encoding="utf-8") as f:
-            return sum(1 for _ in f)
-
-    def process_file(path):
-        total_lines = count_lines(path)
-        tokens = []
-        with open(path, "r", encoding="utf-8") as f:
-            for line in tqdm(
-                f, total=total_lines, desc=f"Processing {path.name}", unit="lines"
-            ):
-                tokens.extend(tokenizer.encode(line.strip()) + [tokenizer.eos_token_id])
-        return torch.tensor(tokens, dtype=torch.long)
-
     if paths["val"] is not None:
-        train_tokens = process_file(paths["train"])
-        val_tokens = process_file(paths["val"])
+        _process_file_stream(paths["train"], tokenizer, train_out)
+        _process_file_stream(paths["val"], tokenizer, val_out)
     else:
-        full_tokens = process_file(paths["train"])
-        train_tokens, val_tokens = split_by_eos(
-            full_tokens,
-            split_ratio=data_config.tokenizer.split,
-            eos_token_id=tokenizer.eos_token_id,
+        _process_and_split_stream(
+            paths["train"],
+            tokenizer,
+            train_out,
+            val_out,
+            data_config.tokenizer.split,
         )
-
-    return train_tokens, val_tokens
 
 
 def _save_tokens(
@@ -275,8 +335,7 @@ def maybe_cache_dataset(
         return train_tokens_path, val_tokens_path
 
     print("Processing dataset ...")
-    train_tokens, val_tokens = _process_dataset(data_config, tokenizer)
-    _save_tokens(train_tokens, val_tokens, train_tokens_path, val_tokens_path)
+    _process_dataset_streaming(data_config, tokenizer, train_tokens_path, val_tokens_path)
 
     return train_tokens_path, val_tokens_path
 
@@ -285,7 +344,7 @@ def build_data_pipeline(
     data_config: "DataConfig",
     batch_size: int,
     seed: int = 42,
-    shuffle: bool = True,
+    shuffle: bool = False,
     drop_last: bool = True,
 ) -> tuple[BaseTokenizer, torch.utils.data.DataLoader, torch.utils.data.DataLoader]:
     """
@@ -309,8 +368,8 @@ def build_data_pipeline(
     tokenizer = build_tokenizer(data_config.tokenizer, data_config.dataset)
     train_path, val_path = maybe_cache_dataset(data_config, tokenizer)
 
-    train_data = torch.load(train_path)
-    val_data = torch.load(val_path)
+    train_data = load_tokens_memmap(train_path)
+    val_data = load_tokens_memmap(val_path)
 
     if len(train_data) <= data_config.block_size:
         raise ValueError("Train dataset too small")

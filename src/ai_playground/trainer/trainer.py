@@ -159,8 +159,6 @@ class Trainer:
     def _pre_fit(
         self,
         model: nn.Module,
-        train_dataloader: DataLoader,
-        val_dataloader: DataLoader | None,
     ):
         self.logger_manager.log_config(self.config.trainer)
 
@@ -186,7 +184,7 @@ class Trainer:
                 initial_step=initial_step, total_steps=self.max_steps
             )
 
-        return model, train_dataloader, val_dataloader
+        return model
 
     def fit(
         self,
@@ -204,9 +202,7 @@ class Trainer:
         """
         try:
             # Pretraining setup
-            model, train_dataloader, val_dataloader = self._pre_fit(
-                model, train_dataloader, val_dataloader
-            )
+            model = self._pre_fit(model)
             assert (
                 self.optimizer is not None
             ), "Optimizer must be configured before training"
@@ -222,7 +218,6 @@ class Trainer:
 
                 while not self._should_stop():
                     xb, yb = next(train_iter)
-
                     if self.strategy.device_type == "cuda":
                         torch.cuda.synchronize()
                     start = time.perf_counter()
@@ -231,6 +226,7 @@ class Trainer:
                     logits, loss, aux_metrics = self._train_step(
                         model, xb, yb, self.optimizer, self.lr_scheduler
                     )
+
                     if aux_metrics and "moe" in aux_metrics:
                         loss += aux_metrics.get("load_balance_loss", 0.0)
 
@@ -278,7 +274,7 @@ class Trainer:
         """
         optimizer.zero_grad(set_to_none=True)
         data_start = time.perf_counter()
-        xb, yb = xb.to(self.strategy.device), yb.to(self.strategy.device)
+        xb, yb = xb.clone().to(self.strategy.device), yb.clone().to(self.strategy.device)
         self.data_time_accumulator += time.perf_counter() - data_start
 
         with torch.autocast(
