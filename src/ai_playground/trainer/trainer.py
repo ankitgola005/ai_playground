@@ -2,7 +2,7 @@ from contextlib import nullcontext
 from typing import TYPE_CHECKING, List, Dict, Any, Iterable
 import time
 
-from sklearn import metrics
+from tqdm import tqdm
 import torch
 import torch.nn as nn
 from torch.amp.grad_scaler import GradScaler
@@ -29,7 +29,6 @@ if TYPE_CHECKING:
     from torch.utils.data import DataLoader
     from torch.profiler.profiler import profile as Profiler
     from torch.optim import Optimizer, lr_scheduler
-    from tqdm import tqdm
     from ai_playground.configs.config import Config
     from ai_playground.distributed.base import Parallel
 
@@ -83,6 +82,7 @@ class Trainer:
 
         self.warmup_steps: int = config.trainer.warmup_steps
         self.max_steps: int = config.trainer.max_steps
+        self.max_val_steps: int = config.trainer.max_val_steps
         self.save_interval: int = config.trainer.save_interval
         self.val_interval: int = config.trainer.val_interval
 
@@ -477,6 +477,15 @@ class Trainer:
         model.eval()
         total_loss = torch.zeros(1, device=self.strategy.device)
         count = 0
+        max_steps = self.max_val_steps if self.max_val_steps > 0 else len(val_dataloader)
+        val_steps = min(len(val_dataloader), max_steps)
+        val_bar = tqdm(
+            val_dataloader,
+            desc="validation",
+            total=val_steps,
+            leave=False,   
+            position=1
+        )
         with (
             torch.no_grad(),
             torch.autocast(
@@ -485,7 +494,9 @@ class Trainer:
                 enabled=self.use_amp,
             ),
         ):
-            for xb, yb in val_dataloader:
+            for i, (xb, yb) in enumerate(val_bar):
+                if i >= val_steps:
+                    break
                 xb, yb = xb.to(self.strategy.device), yb.to(self.strategy.device)
                 out = model(xb, yb)
                 total_loss += out["loss"].detach() * xb.size(0)

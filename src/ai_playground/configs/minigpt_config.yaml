@@ -2,11 +2,11 @@ data:
   dataset: "tinystoriesV2"
   num_workers: 0
   block_size: 128
+  split: 0.9 # Required for datasets without split
   tokenizer:
     name: "bpe"
     filename: bpe_tinystoriesV2_8k.json
     vocab_size: 8192
-    split: 0.9 # Required for datasets without split
 
 model:
   model_name: "minigpt"
@@ -37,6 +37,7 @@ trainer:
   eval_batch_size: 4
   max_steps: 1000
   val_interval: 100
+  max_val_steps: 100
   lr_config:
     scheduler: "cosine"
     lr: 0.0003
