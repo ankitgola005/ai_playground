@@ -41,10 +41,10 @@ class TextDataset(Dataset):
         y = self.data[idx + 1 : idx + self.block_size + 1]
         if isinstance(x, np.ndarray) and isinstance(y, np.ndarray):
             x = torch.from_numpy(x.copy())
-            y = torch.from_numpy(y.copy())
+            y = torch.from_numpy(y.copy()).long()
         else:
             x = x.clone()
-            y = y.clone()
+            y = y.clone().long()
         return x, y
 
 
