@@ -13,9 +13,11 @@ def run_training(config: Config):
         config.data, config.trainer.batch_size, config.trainer.seed
     )
     model = build_model(config.model)(
-        config.model, tokenizer.vocab_size, config.data.block_size
+        config.model, tokenizer.vocab_size, config.data.block_size, True
     )
-    trainer = Trainer(config, strategy=get_strategy(config.distributed))
+    trainer = Trainer(
+        config, strategy=get_strategy(config.distributed), logger_metrics=["moe"]
+    )
     trainer.fit(model, train_loader, val_loader)
     preds = trainer.predict(model, tokenizer, prompts=["The quickest fox is "])
     print(f"{preds=}")

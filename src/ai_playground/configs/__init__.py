@@ -6,6 +6,7 @@ from ai_playground.configs.config import (
     TrainerConfig,
     LRConfig,
     ProfilerConfig,
+    TokenizerConfig,
 )
 
 __all__ = [
@@ -16,4 +17,5 @@ __all__ = [
     "TrainerConfig",
     "LRConfig",
     "ProfilerConfig",
+    "TokenizerConfig",
 ]

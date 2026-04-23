@@ -4,47 +4,14 @@ import numpy as np
 import pytest
 import torch
 
-from ai_playground.configs.config import DataConfig
-from ai_playground.data.char_tokenizer import CharTokenizer
+from ai_playground.configs.config import DataConfig, TokenizerConfig
+from ai_playground.tokenizer.char_tokenizer import CharTokenizer
 from ai_playground.data.dataset import (
     TextDataset,
     build_dataloader,
     seed_worker,
     train_val_split,
 )
-
-
-def test_char_tokenizer_encode_decode():
-    text = "hello"
-    tokenizer = CharTokenizer(text)
-
-    eos_token = tokenizer.eos_token
-    expected_vocab = set(text) | {eos_token}
-
-    # Vocabulary checks
-    assert tokenizer.vocab_size == len(expected_vocab)
-    assert set(tokenizer.stoi.keys()) == expected_vocab
-    assert set(tokenizer.itos.values()) == expected_vocab
-
-    encoded = tokenizer.encode(text)
-    assert isinstance(encoded, list)
-    expected_encoded = [tokenizer.stoi[c] for c in text]
-    assert encoded == expected_encoded
-
-    decoded = tokenizer.decode(encoded)
-    assert decoded.startswith(text)
-
-
-def test_char_tokenizer_unknown_character_raises_keyerror():
-    tokenizer = CharTokenizer("abc")
-    with pytest.raises(KeyError):
-        tokenizer.encode("d")
-
-
-def test_char_tokenizer_invalid_decode_id_raises_keyerror():
-    tokenizer = CharTokenizer("abc")
-    with pytest.raises(KeyError):
-        tokenizer.decode([10])
 
 
 def test_text_dataset_getitem_and_len():
@@ -83,7 +50,13 @@ def test_train_val_split_boundary_and_values():
 
 def test_build_dataloader_iteration_no_shuffle():
     encoded = torch.arange(8, dtype=torch.long)
-    data_config = DataConfig(dataset="test", split=0.9, num_workers=0, block_size=3)
+    data_config = DataConfig(
+        dataset="test",
+        split=0.9,
+        num_workers=0,
+        block_size=3,
+        tokenizer=TokenizerConfig(name="char"),
+    )
 
     dl = build_dataloader(
         data_config=data_config,

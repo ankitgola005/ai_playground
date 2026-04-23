@@ -3,33 +3,279 @@ from pathlib import Path
 from typing import TYPE_CHECKING
 
 import torch
-from ai_playground.data import dataset, CharTokenizer
+from ai_playground.data import dataset
+from ai_playground.tokenizer.base_tokenizer import BaseTokenizer
+from ai_playground.tokenizer.tokenizer_factory import build_tokenizer
 
 if TYPE_CHECKING:
     from ai_playground.configs.config import DataConfig
-    from typing import Tuple
+    from typing import Iterable, Iterator, TypeVar, Dict, Tuple
+
+    T = TypeVar("T")
 
 
 DATA_DIR = Path(__file__).resolve().parent.parent.parent.parent / "datasets"
 
 
-def get_dataset_path(dataset: str) -> Path:
+def get_dataset_path(dataset: str) -> Dict[str, Path | None]:
     """
-    Get path to a dataset based on the dataset name in config.
+    Returns train/val file paths for a given dataset name.
 
     Args:
-        dataset (str): Dataset name.
+        dataset: Dataset identifier.
 
     Returns:
-        Path: Path to the dataset file.
+        Dict with keys:
+            - "train": Path to training file
+            - "val": Path to validation file (or None if split is needed)
 
     Raises:
-        NotImplementedError: If the dataset name is not supported.
+        NotImplementedError: If dataset is not supported.
     """
-    if dataset == "shakespeare":
-        return DATA_DIR / "text_datasets/shakespeare.txt"
+    if dataset == "tinyshakespeare":
+        path = DATA_DIR / "text_datasets/tiny_shakespeare/tiny_shakespeare.txt"
+        return {
+            "train": path,
+            "val": None,  # Split later from full dataset
+        }
+
+    elif dataset == "tinystories":
+        base = DATA_DIR / "text_datasets/tinystories/"
+        return {
+            "train": base / "train.txt",
+            "val": base / "val.txt",
+        }
+
+    elif dataset == "tinystoriesV2":
+        base = DATA_DIR / "text_datasets/tinystoriesV2"
+        return {
+            "train": base / "train.txt",
+            "val": base / "val.txt",
+        }
+
     else:
         raise NotImplementedError(f"Dataset '{dataset}' is currently not supported.")
+
+
+def create_infinite_loader(dl: Iterable[T]) -> Iterator[T]:
+    """
+    Creates an infinite iterator over a dataloader.
+    Repeats dataset indefinitely by cycling over batches.
+
+    Args:
+        dl: Any iterable dataloader.
+
+    Yields:
+        Batches from dataloader in an infinite loop.
+    """
+    while True:
+        for batch in dl:
+            yield batch
+
+
+def split_by_eos(
+    encoded: torch.Tensor,
+    split_ratio: float,
+    eos_token_id: int,
+) -> Tuple[torch.Tensor, torch.Tensor]:
+    """
+    Splits token sequence at nearest EOS boundary before split point.
+
+    Args:
+        encoded: 1D tensor of token ids.
+        split_ratio: Fraction for train split (e.g. 0.9).
+        eos_token_id: End-of-sequence token id.
+
+    Returns:
+        (train_tokens, val_tokens)
+    """
+    target = int(len(encoded) * split_ratio)
+    eos_positions = (encoded == eos_token_id).nonzero(as_tuple=True)[0]
+
+    if eos_positions.numel() == 0:
+        split_idx = target
+    else:
+        split_idx = eos_positions[(eos_positions <= target)].max().item() + 1
+
+    return encoded[:split_idx], encoded[split_idx:]
+
+
+def _compute_dataset_hash(paths: Dict[str, Path | None]) -> str:
+    """
+    Computes SHA256 hash over dataset files.
+    Only train/val files are included. Used for cache invalidation.
+
+    Args:
+        paths: Dictionary containing dataset file paths.
+
+    Returns:
+        Hex digest string representing dataset content hash.
+    """
+    digest = sha256()
+    for key in ("train", "val"):
+        path = paths.get(key)
+        if path is None:
+            continue
+        with open(path, "rb") as f:
+            while chunk := f.read(8192):
+                digest.update(chunk)
+    return digest.hexdigest()
+
+
+def _get_cache_paths(
+    data_config: "DataConfig",
+    tokenizer: BaseTokenizer,
+) -> Tuple[Path, Path, str]:
+    """
+    Computes cache paths and ID for dataset tokenization.
+
+    Args:
+        data_config: Data configuration.
+        tokenizer: Tokenizer instance.
+
+    Returns:
+        train_tokens_path: Path for train tokens cache.
+        val_tokens_path: Path for val tokens cache.
+        cache_id: Unique cache identifier.
+    """
+    paths = get_dataset_path(data_config.dataset)
+    cache_dir = DATA_DIR / "processed" / data_config.dataset
+    cache_dir.mkdir(parents=True, exist_ok=True)
+
+    dataset_hash = _compute_dataset_hash(paths)
+    tokenizer_id = getattr(tokenizer, "filename", None) or type(tokenizer).__name__
+    cache_id = sha256(
+        f"{dataset_hash}|{type(tokenizer).__name__}|{tokenizer_id}".encode("utf-8")
+    ).hexdigest()
+
+    train_tokens_path = cache_dir / f"train_tokens_{cache_id}.pt"
+    val_tokens_path = cache_dir / f"val_tokens_{cache_id}.pt"
+
+    return train_tokens_path, val_tokens_path, cache_id
+
+
+def _is_cache_valid(
+    train_tokens_path: Path,
+    val_tokens_path: Path,
+    tokenizer: BaseTokenizer,
+) -> bool:
+    """
+    Checks if cached token tensors are valid for the given tokenizer.
+
+    Args:
+        train_tokens_path: Path to train tokens.
+        val_tokens_path: Path to val tokens.
+        tokenizer: Tokenizer instance.
+
+    Returns:
+        True if cache is valid, False otherwise.
+    """
+    if not (train_tokens_path.exists() and val_tokens_path.exists()):
+        return False
+
+    try:
+        train_tokens = torch.load(train_tokens_path)
+        val_tokens = torch.load(val_tokens_path)
+        return (
+            train_tokens.numel() > 0
+            and train_tokens.max().item() < tokenizer.vocab_size
+            and val_tokens.numel() > 0
+            and val_tokens.max().item() < tokenizer.vocab_size
+        )
+    except Exception:
+        return False
+
+
+def _process_dataset(
+    data_config: "DataConfig",
+    tokenizer: BaseTokenizer,
+) -> Tuple[torch.Tensor, torch.Tensor]:
+    """
+    Processes dataset files into tokenized tensors.
+
+    Args:
+        data_config: Data configuration.
+        tokenizer: Tokenizer instance.
+
+    Returns:
+        train_tokens: Tokenized train data.
+        val_tokens: Tokenized val data.
+    """
+    paths = get_dataset_path(data_config.dataset)
+
+    def process_file(path):
+        import itertools
+
+        with open(path, "r", encoding="utf-8") as f:
+            tokens = list(
+                itertools.chain.from_iterable(
+                    tokenizer.encode(line.strip()) + [tokenizer.eos_token_id]
+                    for line in f
+                )
+            )
+        return torch.tensor(tokens, dtype=torch.long)
+
+    if paths["val"] is not None:
+        train_tokens = process_file(paths["train"])
+        val_tokens = process_file(paths["val"])
+    else:
+        full_tokens = process_file(paths["train"])
+        train_tokens, val_tokens = split_by_eos(
+            full_tokens,
+            split_ratio=data_config.split,
+            eos_token_id=tokenizer.eos_token_id,
+        )
+
+    return train_tokens, val_tokens
+
+
+def _save_tokens(
+    train_tokens: torch.Tensor,
+    val_tokens: torch.Tensor,
+    train_tokens_path: Path,
+    val_tokens_path: Path,
+) -> None:
+    """
+    Saves tokenized tensors to cache files.
+
+    Args:
+        train_tokens: Train token tensor.
+        val_tokens: Val token tensor.
+        train_tokens_path: Path to save train tokens.
+        val_tokens_path: Path to save val tokens.
+    """
+    torch.save(train_tokens, train_tokens_path)
+    torch.save(val_tokens, val_tokens_path)
+
+
+def maybe_cache_dataset(
+    data_config: "DataConfig",
+    tokenizer: BaseTokenizer,
+) -> Tuple[Path, Path]:
+    """
+    Loads or builds tokenized dataset with caching support.
+    Cache is invalidated when:
+        - Dataset file hash changes
+        - Tokenizer config changes
+
+    Args:
+        data_config: Data configuration.
+        tokenizer: Pre-built tokenizer instance.
+
+    Returns:
+        train_tokens_path: Path to cached train tensor.
+        val_tokens_path: Path to cached val tensor.
+    """
+    train_tokens_path, val_tokens_path, _ = _get_cache_paths(data_config, tokenizer)
+
+    if _is_cache_valid(train_tokens_path, val_tokens_path, tokenizer):
+        return train_tokens_path, val_tokens_path
+
+    print("Processing dataset ...")
+    train_tokens, val_tokens = _process_dataset(data_config, tokenizer)
+    _save_tokens(train_tokens, val_tokens, train_tokens_path, val_tokens_path)
+
+    return train_tokens_path, val_tokens_path
 
 
 def build_data_pipeline(
@@ -38,73 +284,41 @@ def build_data_pipeline(
     seed: int = 42,
     shuffle: bool = True,
     drop_last: bool = True,
-) -> Tuple[CharTokenizer, "torch.utils.data.DataLoader", "torch.utils.data.DataLoader"]:
+) -> tuple[BaseTokenizer, torch.utils.data.DataLoader, torch.utils.data.DataLoader]:
     """
-    Build the tokenizer and PyTorch data loaders for training and validation.
+    Builds full training and validation data pipeline.
 
-    Args:
-        config (Config): Configuration object with a `data` attribute
-            of type DataConfigProtocol.
+    Steps:
+        1. Build or load cached tokenizer
+        2. Load or build cached tokenized dataset
+        3. Load tensors from disk
+        4. Validate dataset size vs block size
+        5. Create PyTorch dataloaders
 
     Returns:
-        Tuple[CharTokenizer, DataLoader, DataLoader]:
-            - tokenizer: CharTokenizer instance
-            - train_loader: DataLoader for training data
-            - val_loader: DataLoader for validation data
+        tokenizer:
+            Tokenizer used for encoding.
+        train_loader:
+            Training dataloader.
+        val_loader:
+            Validation dataloader.
     """
-    dataset_path = get_dataset_path(data_config.dataset)
+    tokenizer = build_tokenizer(data_config.tokenizer, data_config.dataset)
+    train_path, val_path = maybe_cache_dataset(data_config, tokenizer)
 
-    cache_dir = DATA_DIR / "cache"
-    cache_dir.mkdir(parents=True, exist_ok=True)
+    train_data = torch.load(train_path)
+    val_data = torch.load(val_path)
 
-    with open(dataset_path, "rb") as f:
-        dataset_bytes = f.read()
-    dataset_hash = sha256(dataset_bytes).hexdigest()
+    if len(train_data) <= data_config.block_size:
+        raise ValueError("Train dataset too small")
 
-    encoded_cache_path = cache_dir / f"{data_config.dataset}_{dataset_hash}.pt"
-    tokenizer_cache_path = (
-        cache_dir / f"{data_config.dataset}_{dataset_hash}_tokenizer.pt"
-    )
+    if (
+        val_data is not None
+        and len(val_data) > 0
+        and len(val_data) <= data_config.block_size
+    ):
+        raise ValueError("Val dataset too small")
 
-    if encoded_cache_path.exists() and tokenizer_cache_path.exists():
-        encoded = torch.load(encoded_cache_path)
-        tokenizer_state = torch.load(tokenizer_cache_path)
-        tokenizer = CharTokenizer.from_state(tokenizer_state)
-    else:
-        text = dataset_bytes.decode("utf-8")
-        tokenizer = CharTokenizer(text)
-
-        lines = text.split("\n")
-        all_tokens = []
-        for line in lines:
-            tokens = tokenizer.encode(line)
-            if len(tokens) > 0:
-                all_tokens.extend(tokens + [tokenizer.eos_token_id])
-        encoded = torch.tensor(all_tokens, dtype=torch.long)
-
-        torch.save(encoded, encoded_cache_path)
-        torch.save(tokenizer.state_dict(), tokenizer_cache_path)
-
-    if len(encoded) <= data_config.block_size:
-        raise ValueError(
-            f"Encoded dataset too small for block_size={data_config.block_size}: "
-            f"len(encoded)={len(encoded)}"
-        )
-
-    # Split
-    split_idx = int(len(encoded) * data_config.split)
-    while encoded[split_idx] != tokenizer.eos_token_id:
-        split_idx += 1
-
-    # If no EOS found, fallback
-    if split_idx == len(encoded):
-        split_idx = int(len(encoded) * data_config.split)
-
-    train_data = encoded[: split_idx + 1]
-    val_data = encoded[split_idx + 1 :]
-    # train_data, val_data = dataset.train_val_split(encoded, split=data_config.split)
-
-    # Build dataloaders
     train_loader = dataset.build_dataloader(
         data_config=data_config,
         encoded_data=train_data,
@@ -113,6 +327,7 @@ def build_data_pipeline(
         shuffle=shuffle,
         drop_last=drop_last,
     )
+
     val_loader = dataset.build_dataloader(
         data_config=data_config,
         encoded_data=val_data,
@@ -123,9 +338,3 @@ def build_data_pipeline(
     )
 
     return tokenizer, train_loader, val_loader
-
-
-def create_infinite_loader(dl):
-    while True:
-        for batch in dl:
-            yield batch

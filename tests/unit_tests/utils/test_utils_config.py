@@ -16,6 +16,7 @@ from ai_playground.configs.config import (
     LRConfig,
     ProfilerConfig,
     DistributedConfig,
+    TokenizerConfig,
 )
 from ai_playground.utils.paths import convert_paths
 
@@ -23,7 +24,13 @@ from ai_playground.utils.paths import convert_paths
 def make_minimal_config(tmpdir) -> Config:
     base_dir = Path(tmpdir) / "test_run"
     cfg = Config(
-        data=DataConfig(dataset="test", split=0.9, num_workers=0, block_size=10),
+        data=DataConfig(
+            dataset="test",
+            split=0.9,
+            num_workers=0,
+            block_size=10,
+            tokenizer=TokenizerConfig(name="char"),
+        ),
         model=ModelConfig(model_name="bigram", compile=False),
         trainer=TrainerConfig(
             seed=42,
