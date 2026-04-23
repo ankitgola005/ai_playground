@@ -18,10 +18,9 @@ def make_minimal_config():
     return Config(
         data=DataConfig(
             dataset="shakespeare",
-            split=0.9,
             num_workers=0,
             block_size=128,
-            tokenizer=TokenizerConfig(name="char"),
+            tokenizer=TokenizerConfig(name="char", split=0.9),
         ),
         model=ModelConfig(
             model_name="minigpt", compile=True, model_kwargs={"n_layer": 4}
@@ -68,10 +67,9 @@ def test_data_config_validation():
     # valid
     data = DataConfig(
         dataset="abc",
-        split=0.8,
         num_workers=0,
         block_size=128,
-        tokenizer=TokenizerConfig(name="char"),
+        tokenizer=TokenizerConfig(name="char", split=0.8),
     )
     assert data.dataset == "abc"
 
@@ -79,20 +77,18 @@ def test_data_config_validation():
     with pytest.raises(ValidationError):
         DataConfig(
             dataset="abc",
-            split=1.5,
             num_workers=0,
             block_size=128,
-            tokenizer=TokenizerConfig(name="char"),
+            tokenizer=TokenizerConfig(name="char", split=1.5),
         )
 
     # invalid block_size
     with pytest.raises(ValidationError):
         DataConfig(
             dataset="abc",
-            split=0.8,
             num_workers=0,
             block_size=0,
-            tokenizer=TokenizerConfig(name="char"),
+            tokenizer=TokenizerConfig(name="char", split=0.8),
         )
 
 

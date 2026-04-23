@@ -16,7 +16,6 @@ from ai_playground.tokenizer.char_tokenizer import CharTokenizer
 def config():
     return DataConfig(
         dataset="tinyshakespeare",
-        split=0.9,
         num_workers=0,
         block_size=4,
         tokenizer=TokenizerConfig(name="char"),
@@ -81,7 +80,8 @@ def test_build_data_pipeline_cache_modes(
 ):
     config.tokenizer = TokenizerConfig(
         name="char",
-        path=str(tokenizer_file()),
+        filename=str(tokenizer_file()),
+        split=0.9,
     )
 
     mock_train_dl, mock_val_dl = mock_loaders
@@ -94,12 +94,24 @@ def test_build_data_pipeline_cache_modes(
 
     fake_dataloader.call_count = 0
 
-    mock_exists = MagicMock(side_effect=[cache_exists, cache_exists])
+    dataset_dir = tmp_path / "datasets"
+    train_file = dataset_dir / "tiny_shakespeare.txt"
+    dataset_dir.mkdir(parents=True)
+    train_file.write_text("hello world\nthis is a test", encoding="utf-8")
 
     with (
-        patch("pathlib.Path.exists", mock_exists),
+        patch("ai_playground.utils.data.DATA_DIR", tmp_path),
+        patch(
+            "ai_playground.utils.data.get_dataset_path",
+            return_value={"train": train_file, "val": None},
+        ),
+        patch("ai_playground.utils.data._is_cache_valid", return_value=cache_exists),
+        patch("ai_playground.utils.data._save_tokens") as mock_save,
+        patch(
+            "ai_playground.utils.data._process_dataset",
+            return_value=(encoded_data, encoded_data),
+        ),
         patch("torch.load", return_value=encoded_data),
-        patch("torch.save") as mock_save,
         patch(
             "ai_playground.utils.data.dataset.build_dataloader",
             side_effect=fake_dataloader,
@@ -137,16 +149,17 @@ def test_dataset_too_small(config, block_size):
             build_data_pipeline(config, batch_size=2)
 
 
-def test_split_respects_eos(tmp_path, config):
+def test_split_respects_eos(tmpdir, config):
     tokenizer = CharTokenizer()
     tokenizer.build_from_text("hello world this is test")
 
-    path = tmp_path / "tok.json"
+    path = tmpdir / "tok.json"
     tokenizer.save(path)
 
     config.tokenizer = TokenizerConfig(
         name="char",
-        path=str(path),
+        filename=str(path),
+        split=0.9,
     )
 
     eos = tokenizer.eos_token_id

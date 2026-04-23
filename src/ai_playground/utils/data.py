@@ -222,7 +222,7 @@ def _process_dataset(
         full_tokens = process_file(paths["train"])
         train_tokens, val_tokens = split_by_eos(
             full_tokens,
-            split_ratio=data_config.split,
+            split_ratio=data_config.tokenizer.split,
             eos_token_id=tokenizer.eos_token_id,
         )
 

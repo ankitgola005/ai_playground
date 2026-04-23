@@ -1,12 +1,12 @@
 data:
-  dataset: "tinyshakespeare"
-  split: 0.9
+  dataset: "tinystoriesV2"
   num_workers: 0
   block_size: 128
   tokenizer:
-    name: "char"
-    filename: null
-    vocab_size: null
+    name: "bpe"
+    filename: bpe_tinystoriesV2_8k.json
+    vocab_size: 8192
+    split: 0.9 # Required for datasets without split
 
 model:
   model_name: "minigpt"
