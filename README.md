@@ -12,6 +12,8 @@ ai_playground/
 ├─ README.md                     # README
 ├─ datasets/                     # Datasets for training
 ├─ experiments/                  # Experiment results
+├─ scripts                       # Helper scripts
+├─ serving/                      # Tiny Serving engine
 ├─ src/                          # Source dir.
 │  └─ ai_playground/
 │     ├─ configs/                # Experiment configs
@@ -67,7 +69,7 @@ ai_playground/
 
 ---
 
-### Debug Signals (Check in this order)
+### Debug Signals
 
 1. `loss`
 2. `grad_norm`
