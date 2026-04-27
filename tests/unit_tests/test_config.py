@@ -32,6 +32,7 @@ def make_minimal_config():
             eval_batch_size=4,
             max_steps=1000,
             val_interval=100,
+            max_val_steps=1,
             lr_config=LRConfig(scheduler="constant", lr=0.0003),
             betas=(0.9, 0.95),
             warmup_steps=100,
@@ -69,7 +70,8 @@ def test_data_config_validation():
         dataset="abc",
         num_workers=0,
         block_size=128,
-        tokenizer=TokenizerConfig(name="char", split=0.8),
+        split=0.8,
+        tokenizer=TokenizerConfig(name="char"),
     )
     assert data.dataset == "abc"
 
@@ -79,7 +81,8 @@ def test_data_config_validation():
             dataset="abc",
             num_workers=0,
             block_size=128,
-            tokenizer=TokenizerConfig(name="char", split=1.5),
+            split=1.5,
+            tokenizer=TokenizerConfig(name="char"),
         )
 
     # invalid block_size

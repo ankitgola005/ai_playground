@@ -38,6 +38,7 @@ def make_minimal_config(tmpdir) -> Config:
             batch_size=1,
             max_steps=1,
             val_interval=1,
+            max_val_steps=1,
             lr_config=LRConfig(scheduler="constant", lr=0.1),
             betas=(0.9, 0.95),
             warmup_steps=0,

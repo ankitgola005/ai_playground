@@ -86,6 +86,7 @@ def config():
             precision="fp32",
             warmup_steps=0,
             max_steps=2,
+            max_val_steps=0,
             save_interval=0,
             val_interval=1,
             log_interval=1,

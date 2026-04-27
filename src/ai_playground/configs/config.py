@@ -39,7 +39,6 @@ class TokenizerConfig(BaseModel):
     name: str
     filename: str | None = Field(default=None)
     vocab_size: int | None = Field(default=None)
-    split: float | None = Field(default=None, ge=0.0, le=1.0)
 
 
 # Data config
@@ -47,6 +46,7 @@ class DataConfig(BaseModel):
     dataset: str
     num_workers: int = Field(ge=0)
     block_size: int = Field(gt=1)
+    split: float | None = Field(default=None, ge=0.0, le=1.0)
     tokenizer: TokenizerConfig
 
 

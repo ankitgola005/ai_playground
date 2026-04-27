@@ -195,7 +195,6 @@ def load_tokens_memmap(path: Path):
     return torch.from_numpy(arr)
 
 
-
 def _process_file_stream(path: Path, tokenizer, output_path: Path):
     import numpy as np
 
@@ -204,9 +203,13 @@ def _process_file_stream(path: Path, tokenizer, output_path: Path):
 
     total_bytes = os.path.getsize(path)
 
-    with open(path, "r", encoding="utf-8") as f, \
-         open(output_path, "wb") as out, \
-         tqdm(total=total_bytes, desc=f"Processing {path.name}", unit="B", unit_scale=True) as pbar:
+    with (
+        open(path, "r", encoding="utf-8") as f,
+        open(output_path, "wb") as out,
+        tqdm(
+            total=total_bytes, desc=f"Processing {path.name}", unit="B", unit_scale=True
+        ) as pbar,
+    ):
 
         for line in f:
             tokens = tokenizer.encode(line.strip())
@@ -288,7 +291,7 @@ def _process_dataset_streaming(
             tokenizer,
             train_out,
             val_out,
-            data_config.tokenizer.split,
+            data_config.split,
         )
 
 
@@ -335,7 +338,9 @@ def maybe_cache_dataset(
         return train_tokens_path, val_tokens_path
 
     print("Processing dataset ...")
-    _process_dataset_streaming(data_config, tokenizer, train_tokens_path, val_tokens_path)
+    _process_dataset_streaming(
+        data_config, tokenizer, train_tokens_path, val_tokens_path
+    )
 
     return train_tokens_path, val_tokens_path
 

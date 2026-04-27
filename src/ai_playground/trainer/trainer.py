@@ -24,6 +24,7 @@ from ai_playground.utils import (
     load_checkpoint,
     create_infinite_loader,
 )
+from ai_playground.callbacks.callback import Callback
 
 if TYPE_CHECKING:
     from torch.utils.data import DataLoader
@@ -50,6 +51,7 @@ class Trainer:
         strategy: Parallel,
         optimizer: Optimizer | None = None,
         logger_metrics: Iterable[str] | None = None,
+        callbacks: list[Callback] | None = None,
     ):
         self.optimizer: Optimizer | None = optimizer
         self.lr_scheduler: lr_scheduler.LambdaLR | None = None
@@ -111,6 +113,8 @@ class Trainer:
                 device_type=self.strategy.device_type,
                 log_dir=self.config.trainer.log_dir,
             )
+
+        self.callbacks = callbacks or []
 
         self.run_name: str = config.trainer.run_name
         self.generator: Generator | None = None
@@ -184,6 +188,9 @@ class Trainer:
                 initial_step=initial_step, total_steps=self.max_steps
             )
 
+        for cb in self.callbacks:
+            cb.on_train_start(self)
+
         return model
 
     def fit(
@@ -226,6 +233,9 @@ class Trainer:
                     logits, loss, aux_metrics = self._train_step(
                         model, xb, yb, self.optimizer, self.lr_scheduler
                     )
+
+                    for cb in self.callbacks:
+                        cb.on_train_step_end(self, loss, aux_metrics)
 
                     if aux_metrics and "moe" in aux_metrics:
                         loss += aux_metrics.get("load_balance_loss", 0.0)
@@ -274,7 +284,9 @@ class Trainer:
         """
         optimizer.zero_grad(set_to_none=True)
         data_start = time.perf_counter()
-        xb, yb = xb.clone().to(self.strategy.device), yb.clone().to(self.strategy.device)
+        xb, yb = xb.clone().to(self.strategy.device), yb.clone().to(
+            self.strategy.device
+        )
         self.data_time_accumulator += time.perf_counter() - data_start
 
         with torch.autocast(
@@ -457,6 +469,9 @@ class Trainer:
                 self.progress_bar_metrics.update(metrics)
                 self.progress_bar.set_postfix(self.progress_bar_metrics)
 
+        for cb in self.callbacks:
+            cb.on_validation_end(self, val_loss)
+
     def _maybe_checkpoint(self, model):
         """Save checkpoints"""
         if self.save_interval > 0 and (self.global_step) % self.save_interval == 0:
@@ -477,14 +492,12 @@ class Trainer:
         model.eval()
         total_loss = torch.zeros(1, device=self.strategy.device)
         count = 0
-        max_steps = self.max_val_steps if self.max_val_steps > 0 else len(val_dataloader)
+        max_steps = (
+            self.max_val_steps if self.max_val_steps > 0 else len(val_dataloader)
+        )
         val_steps = min(len(val_dataloader), max_steps)
         val_bar = tqdm(
-            val_dataloader,
-            desc="validation",
-            total=val_steps,
-            leave=False,   
-            position=1
+            val_dataloader, desc="validation", total=val_steps, leave=False, position=1
         )
         with (
             torch.no_grad(),
@@ -506,7 +519,14 @@ class Trainer:
             return (total_loss / count).item() if count > 0 else 0.0
 
     def _should_stop(self) -> bool:
-        return self.max_steps > 0 and self.global_step >= self.max_steps
+        if self.max_steps > 0 and self.global_step >= self.max_steps:
+            return True
+        for cb in self.callbacks:
+            if cb.should_stop(self):
+                print(f"Stopping triggered by {cb.__class__.__name__}")
+                return True
+
+        return False
 
     def predict(
         self,
